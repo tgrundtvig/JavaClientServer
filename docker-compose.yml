@@ -1,0 +1,29 @@
+# Docker Compose Template
+# Customize for your project
+
+services:
+  # Application server
+  # server:
+  #   build: ./server
+  #   ports:
+  #     - "8080:8080"
+  #   depends_on:
+  #     - persistence
+  #   environment:
+  #     - DB_HOST=persistence
+  #     - DB_NAME=${DB_NAME:-app}
+  #     - DB_USER=${DB_USER:-app}
+  #     - DB_PASSWORD=${DB_PASSWORD:?required}
+
+  # Database
+  # persistence:
+  #   image: postgres:16
+  #   volumes:
+  #     - db-data:/var/lib/postgresql/data
+  #   environment:
+  #     - POSTGRES_DB=${DB_NAME:-app}
+  #     - POSTGRES_USER=${DB_USER:-app}
+  #     - POSTGRES_PASSWORD=${DB_PASSWORD:?required}
+
+# volumes:
+#   db-data:
