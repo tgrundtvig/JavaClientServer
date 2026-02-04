@@ -1,8 +1,6 @@
 package org.abstractica.clientserver.impl.crypto;
 
 import java.security.*;
-import java.security.spec.PKCS8EncodedKeySpec;
-import java.security.spec.X509EncodedKeySpec;
 import java.util.Arrays;
 import java.util.Objects;
 
@@ -16,7 +14,6 @@ public final class Signer
 {
     private static final String ALGORITHM = "Ed25519";
     private static final int PUBLIC_KEY_LENGTH = 32;
-    private static final int PRIVATE_KEY_LENGTH = 32;
     private static final int SIGNATURE_LENGTH = 64;
 
     // Ed25519 public keys have this prefix in X.509 encoding
@@ -34,7 +31,7 @@ public final class Signer
     /**
      * Generates a new Ed25519 key pair.
      *
-     * @return key pair with raw public key (32 bytes) and raw private key (32 bytes)
+     * @return key pair with standard Java PublicKey and PrivateKey
      */
     public static SigningKeyPair generateKeyPair()
     {
@@ -42,14 +39,7 @@ public final class Signer
         {
             KeyPairGenerator generator = KeyPairGenerator.getInstance(ALGORITHM);
             KeyPair keyPair = generator.generateKeyPair();
-
-            byte[] publicEncoded = keyPair.getPublic().getEncoded();
-            byte[] privateEncoded = keyPair.getPrivate().getEncoded();
-
-            byte[] publicKey = Arrays.copyOfRange(publicEncoded, ED25519_PUBLIC_PREFIX.length, publicEncoded.length);
-            byte[] privateKey = Arrays.copyOfRange(privateEncoded, ED25519_PRIVATE_PREFIX.length, privateEncoded.length);
-
-            return new SigningKeyPair(publicKey, privateKey);
+            return new SigningKeyPair(keyPair.getPublic(), keyPair.getPrivate());
         }
         catch (GeneralSecurityException e)
         {
@@ -58,36 +48,22 @@ public final class Signer
     }
 
     /**
-     * Signs data using a raw Ed25519 private key.
+     * Signs data using an Ed25519 private key.
      *
      * @param data       the data to sign
-     * @param privateKey the raw private key (32 bytes)
+     * @param privateKey the Ed25519 private key
      * @return signature (64 bytes)
      */
-    public static byte[] sign(byte[] data, byte[] privateKey)
+    public static byte[] sign(byte[] data, PrivateKey privateKey)
     {
         Objects.requireNonNull(data, "data");
         Objects.requireNonNull(privateKey, "privateKey");
-        if (privateKey.length != PRIVATE_KEY_LENGTH)
-        {
-            throw new IllegalArgumentException(
-                    "Private key must be " + PRIVATE_KEY_LENGTH + " bytes: " + privateKey.length);
-        }
 
         try
         {
-            // Reconstruct PKCS#8 encoded key
-            byte[] encoded = new byte[ED25519_PRIVATE_PREFIX.length + PRIVATE_KEY_LENGTH];
-            System.arraycopy(ED25519_PRIVATE_PREFIX, 0, encoded, 0, ED25519_PRIVATE_PREFIX.length);
-            System.arraycopy(privateKey, 0, encoded, ED25519_PRIVATE_PREFIX.length, PRIVATE_KEY_LENGTH);
-
-            KeyFactory keyFactory = KeyFactory.getInstance(ALGORITHM);
-            PrivateKey key = keyFactory.generatePrivate(new PKCS8EncodedKeySpec(encoded));
-
             Signature signature = Signature.getInstance(ALGORITHM);
-            signature.initSign(key);
+            signature.initSign(privateKey);
             signature.update(data);
-
             return signature.sign();
         }
         catch (GeneralSecurityException e)
@@ -97,14 +73,14 @@ public final class Signer
     }
 
     /**
-     * Verifies a signature using a raw Ed25519 public key.
+     * Verifies a signature using an Ed25519 public key.
      *
      * @param data      the signed data
      * @param signature the signature to verify (64 bytes)
-     * @param publicKey the raw public key (32 bytes)
+     * @param publicKey the Ed25519 public key
      * @return true if signature is valid
      */
-    public static boolean verify(byte[] data, byte[] signature, byte[] publicKey)
+    public static boolean verify(byte[] data, byte[] signature, PublicKey publicKey)
     {
         Objects.requireNonNull(data, "data");
         Objects.requireNonNull(signature, "signature");
@@ -114,25 +90,12 @@ public final class Signer
         {
             return false;
         }
-        if (publicKey.length != PUBLIC_KEY_LENGTH)
-        {
-            return false;
-        }
 
         try
         {
-            // Reconstruct X.509 encoded key
-            byte[] encoded = new byte[ED25519_PUBLIC_PREFIX.length + PUBLIC_KEY_LENGTH];
-            System.arraycopy(ED25519_PUBLIC_PREFIX, 0, encoded, 0, ED25519_PUBLIC_PREFIX.length);
-            System.arraycopy(publicKey, 0, encoded, ED25519_PUBLIC_PREFIX.length, PUBLIC_KEY_LENGTH);
-
-            KeyFactory keyFactory = KeyFactory.getInstance(ALGORITHM);
-            PublicKey key = keyFactory.generatePublic(new X509EncodedKeySpec(encoded));
-
             Signature sig = Signature.getInstance(ALGORITHM);
-            sig.initVerify(key);
+            sig.initVerify(publicKey);
             sig.update(data);
-
             return sig.verify(signature);
         }
         catch (GeneralSecurityException e)
@@ -142,10 +105,40 @@ public final class Signer
     }
 
     /**
-     * An Ed25519 key pair with raw key bytes.
+     * Extracts raw public key bytes from a PublicKey.
      *
-     * @param publicKey  the raw public key (32 bytes)
-     * @param privateKey the raw private key (32 bytes)
+     * <p>Used for wire protocol encoding where raw 32-byte keys are required.</p>
+     *
+     * @param publicKey the Ed25519 public key
+     * @return raw public key (32 bytes)
      */
-    public record SigningKeyPair(byte[] publicKey, byte[] privateKey) {}
+    public static byte[] getRawPublicKey(PublicKey publicKey)
+    {
+        Objects.requireNonNull(publicKey, "publicKey");
+        byte[] encoded = publicKey.getEncoded();
+        return Arrays.copyOfRange(encoded, ED25519_PUBLIC_PREFIX.length, encoded.length);
+    }
+
+    /**
+     * Extracts raw private key bytes from a PrivateKey.
+     *
+     * <p>Used for wire protocol encoding where raw 32-byte keys are required.</p>
+     *
+     * @param privateKey the Ed25519 private key
+     * @return raw private key (32 bytes)
+     */
+    public static byte[] getRawPrivateKey(PrivateKey privateKey)
+    {
+        Objects.requireNonNull(privateKey, "privateKey");
+        byte[] encoded = privateKey.getEncoded();
+        return Arrays.copyOfRange(encoded, ED25519_PRIVATE_PREFIX.length, encoded.length);
+    }
+
+    /**
+     * An Ed25519 key pair with standard Java key types.
+     *
+     * @param publicKey  the Ed25519 public key
+     * @param privateKey the Ed25519 private key
+     */
+    public record SigningKeyPair(PublicKey publicKey, PrivateKey privateKey) {}
 }

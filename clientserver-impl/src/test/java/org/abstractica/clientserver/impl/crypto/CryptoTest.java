@@ -129,8 +129,27 @@ class CryptoTest
     {
         Signer.SigningKeyPair keyPair = Signer.generateKeyPair();
 
-        assertEquals(32, keyPair.publicKey().length);
-        assertEquals(32, keyPair.privateKey().length);
+        assertNotNull(keyPair.publicKey());
+        assertNotNull(keyPair.privateKey());
+        // Java reports Ed25519 keys as "EdDSA" algorithm
+        assertEquals("EdDSA", keyPair.publicKey().getAlgorithm());
+        assertEquals("EdDSA", keyPair.privateKey().getAlgorithm());
+    }
+
+    @Test
+    void signer_getRawPublicKeyReturns32Bytes()
+    {
+        Signer.SigningKeyPair keyPair = Signer.generateKeyPair();
+        byte[] rawPublic = Signer.getRawPublicKey(keyPair.publicKey());
+        assertEquals(32, rawPublic.length);
+    }
+
+    @Test
+    void signer_getRawPrivateKeyReturns32Bytes()
+    {
+        Signer.SigningKeyPair keyPair = Signer.generateKeyPair();
+        byte[] rawPrivate = Signer.getRawPrivateKey(keyPair.privateKey());
+        assertEquals(32, rawPrivate.length);
     }
 
     @Test
@@ -329,7 +348,7 @@ class CryptoTest
         Signer.SigningKeyPair serverSigningKey = Signer.generateKeyPair();
 
         // Client has server's public key (distributed with app)
-        byte[] serverPublicSigningKey = serverSigningKey.publicKey();
+        java.security.PublicKey serverPublicSigningKey = serverSigningKey.publicKey();
 
         // 1. Both sides generate ephemeral key pairs
         KeyExchange clientKx = new KeyExchange();
