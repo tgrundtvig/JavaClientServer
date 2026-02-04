@@ -195,6 +195,18 @@ interface MessageHandler<T>
 - Connection counts, message rates
 - RTT, retransmit rates
 
+### Application vs Internal
+
+**Application uses directly:**
+- Server, Client, Session, Protocol — core interaction points
+- MessageHandler, SessionHandler, ErrorHandler — callbacks implemented by application
+- Delivery, DisconnectReason — passed to/from library
+
+**Internal to library:**
+- Transport, encryption, reliability layers
+- Serialization machinery (TypeRegistry, serializers)
+- All classes in clientserver-impl
+
 ## Component Interactions
 
 ### Layer Diagram
