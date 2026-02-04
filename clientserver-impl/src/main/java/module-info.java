@@ -6,6 +6,7 @@
 module clientserver.impl
 {
     requires clientserver.api;
+    requires org.slf4j;
 
     // Implementation packages are not exported
 }
