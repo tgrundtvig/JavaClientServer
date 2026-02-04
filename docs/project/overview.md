@@ -1,26 +1,18 @@
 # Project Overview
 
-<!-- TODO: Fill in project-specific details -->
-
 ## Name
 
-[Project Name]
+JavaClientServer
 
 ## Description
 
-[One paragraph describing what this project does and its purpose]
-
-## Goals
-
-- [Primary goal]
-- [Secondary goal]
+A library for client server applications in Java
 
 ## Status
 
-[Current development phase: planning, development, stable, etc.]
+Development
 
 ## Key Technologies
 
 - Java 25
 - Maven
-- [Other technologies]
