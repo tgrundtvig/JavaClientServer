@@ -1,0 +1,54 @@
+session: brainstorm_2026-02-04_1759
+session_type: brainstorm
+date: 2026-02-04 17:59
+duration_minutes: 224
+message_count: 84
+
+# Auto-extracted (verify and supplement)
+files_referenced:
+  - docs/project/overview.md
+  - docs/guidelines/coding.md
+  - docs/guidelines/collaboration-guidelines.md
+
+web_searches:
+  # none
+
+topics:
+  - Core architecture for Java client-server library
+  - UDP transport with custom reliability layer
+  - Message serialization using Java records and sealed interfaces
+  - Session management and reconnection handling
+  - Mandatory encryption (ECDH + ChaCha20-Poly1305)
+  - Error handling and lifecycle callbacks
+  - Module structure and protocol independence
+  - Configuration, observability, and testing support
+
+key_decisions:
+  - UDP with custom reliability (not TCP) - control over reliable vs unreliable delivery
+  - Java records with sealed interfaces for type-safe messages
+  - Binary serialization built at startup via reflection (not compile-time codegen)
+  - Mandatory encryption - no unencrypted mode
+  - Sessions survive disconnects using sequence numbers for ordering and resync
+  - Protocol module has zero library dependency - pure domain records
+  - Library delivers messages to handlers, application decides threading model
+  - Strict protocol version matching via hash - no backward compatibility complexity
+  - Reliable messages are always ordered (simplicity over flexibility)
+  - Single server scope - library doesn't handle distributed/clustering
+  - SLF4J for logging, pollable stats object for metrics
+  - Builder pattern for configuration, record for wire-negotiated parameters
+  - Heartbeat + newest-connection-wins for ghost connection handling
+  - Separate clientserver-test module with mock session and in-memory transport
+
+action_items:
+  - Write requirements specification based on this brainstorm
+  - Design module structure (api, impl, test, demo)
+  - Implement core library
+  - Create demo protocol and example application
+
+highlights:
+  - Protocol is pure domain - application defines message types with no library coupling
+  - Library handles transport, application handles meaning - clean separation
+  - Sequence numbers solve multiple problems - ordering, deduplication, reconnect resync
+  - Mandatory encryption is the right default for modern networked games
+  - Build reliability layer from scratch for control, but study KCP algorithm for design
+  - Two layers of messages - transport-internal (acks, heartbeat) vs application (game messages)
