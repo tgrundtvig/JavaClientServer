@@ -495,10 +495,10 @@ public class DefaultClient implements Client
             return;
         }
 
-        PacketType type = PacketCodec.peekType(data);
+        // Check for unencrypted ServerHello (0x02) - the only unencrypted packet client receives
+        int firstByte = data.get(data.position()) & 0xFF;
 
-        // Handle unencrypted packets (handshake)
-        if (type == PacketType.SERVER_HELLO)
+        if (firstByte == PacketType.SERVER_HELLO.getId())
         {
             ServerHello serverHello = PacketCodec.decodeServerHello(data);
             handleServerHello(serverHello);

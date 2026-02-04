@@ -329,10 +329,10 @@ public class DefaultServer implements Server, SessionCallback
             return;
         }
 
-        PacketType type = PacketCodec.peekType(data);
+        // Check for unencrypted handshake packets first (CLIENT_HELLO = 0x01, SERVER_HELLO = 0x02)
+        int firstByte = data.get(data.position()) & 0xFF;
 
-        // Unencrypted handshake packets
-        if (type == PacketType.CLIENT_HELLO)
+        if (firstByte == PacketType.CLIENT_HELLO.getId())
         {
             if (!acceptingConnections)
             {
@@ -344,40 +344,49 @@ public class DefaultServer implements Server, SessionCallback
             return;
         }
 
-        // Encrypted packets - need to find context
-        if (type == PacketType.CONNECT)
+        if (firstByte == PacketType.SERVER_HELLO.getId())
         {
-            // Connect uses pending handshake encryptor
-            PendingHandshake pending = sessionManager.findPendingHandshake(from);
-            if (pending == null)
-            {
-                LOG.debug("Connect from {} with no pending handshake", from);
-                return;
-            }
+            LOG.debug("Ignoring ServerHello on server side");
+            return;
+        }
 
+        // All other packets are encrypted
+        // Check if this is from a pending handshake (expecting Connect)
+        PendingHandshake pending = sessionManager.findPendingHandshake(from);
+        if (pending != null)
+        {
             try
             {
                 ByteBuffer decrypted = pending.encryptor().decrypt(data);
-                var connect = PacketCodec.decodeConnect(decrypted);
-                handshakeHandler.handleConnect(connect, from, pending.encryptor());
+                PacketType decryptedType = PacketCodec.peekType(decrypted);
+
+                if (decryptedType == PacketType.CONNECT)
+                {
+                    var connect = PacketCodec.decodeConnect(decrypted);
+                    handshakeHandler.handleConnect(connect, from, pending.encryptor());
+                }
+                else
+                {
+                    LOG.debug("Expected Connect from pending handshake, got: {}", decryptedType);
+                }
             }
             catch (SecurityException e)
             {
-                LOG.warn("Failed to decrypt Connect from {}: {}", from, e.getMessage());
+                LOG.warn("Failed to decrypt packet from pending handshake {}: {}", from, e.getMessage());
                 sessionManager.removePendingHandshake(from);
             }
             return;
         }
 
-        // All other packets require an existing session
+        // Check for existing session
         DefaultSession session = sessionManager.findByAddress(from);
         if (session == null)
         {
-            LOG.debug("Packet from unknown address {}, type={}", from, type);
+            LOG.debug("Encrypted packet from unknown address {} (no pending handshake or session)", from);
             return;
         }
 
-        // Decrypt packet
+        // Decrypt packet with session encryptor
         ByteBuffer decrypted;
         try
         {
