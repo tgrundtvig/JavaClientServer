@@ -159,6 +159,108 @@ class DefaultProtocolTest
         assertTrue(protocol.isServerMessage(serverId));
     }
 
+    // ========== Typed Decode Tests ==========
+
+    @Test
+    void decodeClientMessage_returnsTypedMessage()
+    {
+        LoginRequest original = new LoginRequest("user", "pass");
+        byte[] encoded = protocol.encodeMessage(original);
+
+        // Decode as typed client message - can use directly with pattern matching
+        TestClientMessage msg = protocol.decodeClientMessage(encoded);
+
+        assertInstanceOf(LoginRequest.class, msg);
+        assertEquals(original, msg);
+    }
+
+    @Test
+    void decodeClientMessage_worksWithPatternMatching()
+    {
+        ChatMessage original = new ChatMessage("Hello!");
+        byte[] encoded = protocol.encodeMessage(original);
+
+        TestClientMessage msg = protocol.decodeClientMessage(encoded);
+
+        // Pattern matching works directly
+        String result = switch (msg)
+        {
+            case LoginRequest r -> "login:" + r.username();
+            case ChatMessage c -> "chat:" + c.text();
+            case MoveCommand m -> "move:" + m.x();
+        };
+
+        assertEquals("chat:Hello!", result);
+    }
+
+    @Test
+    void decodeClientMessage_rejectsServerMessage()
+    {
+        LoginResponse serverMsg = new LoginResponse(true, Optional.empty());
+        byte[] encoded = protocol.encodeMessage(serverMsg);
+
+        assertThrows(IllegalArgumentException.class, () ->
+                protocol.decodeClientMessage(encoded));
+    }
+
+    @Test
+    void decodeServerMessage_returnsTypedMessage()
+    {
+        LoginResponse original = new LoginResponse(true, Optional.of("Welcome"));
+        byte[] encoded = protocol.encodeMessage(original);
+
+        TestServerMessage msg = protocol.decodeServerMessage(encoded);
+
+        assertInstanceOf(LoginResponse.class, msg);
+        assertEquals(original, msg);
+    }
+
+    @Test
+    void decodeServerMessage_worksWithPatternMatching()
+    {
+        PlayerPosition original = new PlayerPosition(42, 100, 200);
+        byte[] encoded = protocol.encodeMessage(original);
+
+        TestServerMessage msg = protocol.decodeServerMessage(encoded);
+
+        String result = switch (msg)
+        {
+            case LoginResponse r -> "login:" + r.success();
+            case ChatBroadcast b -> "chat:" + b.text();
+            case PlayerPosition p -> "pos:" + p.x() + "," + p.y();
+        };
+
+        assertEquals("pos:100,200", result);
+    }
+
+    @Test
+    void decodeServerMessage_rejectsClientMessage()
+    {
+        LoginRequest clientMsg = new LoginRequest("user", "pass");
+        byte[] encoded = protocol.encodeMessage(clientMsg);
+
+        assertThrows(IllegalArgumentException.class, () ->
+                protocol.decodeServerMessage(encoded));
+    }
+
+    @Test
+    void peekTypeId_returnsCorrectId()
+    {
+        LoginRequest msg = new LoginRequest("user", "pass");
+        byte[] encoded = protocol.encodeMessage(msg);
+
+        int typeId = protocol.peekTypeId(encoded);
+
+        assertEquals(protocol.getTypeId(LoginRequest.class), typeId);
+    }
+
+    @Test
+    void peekTypeId_tooShort_throws()
+    {
+        assertThrows(IllegalArgumentException.class, () ->
+                protocol.peekTypeId(new byte[1]));
+    }
+
     // ========== Hash Tests ==========
 
     @Test

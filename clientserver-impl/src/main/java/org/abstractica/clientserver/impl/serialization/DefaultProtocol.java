@@ -156,6 +156,89 @@ public final class DefaultProtocol implements Protocol
     }
 
     /**
+     * Decodes a client message from bytes.
+     *
+     * <p>Use this on the server side when receiving messages from clients.
+     * The returned value can be used directly with pattern matching on
+     * your sealed client message interface.</p>
+     *
+     * <p>Example:</p>
+     * <pre>{@code
+     * ClientMessage msg = protocol.decodeClientMessage(data);
+     * switch (msg) {
+     *     case LoginRequest r -> handleLogin(r);
+     *     case ChatMessage c -> handleChat(c);
+     * }
+     * }</pre>
+     *
+     * @param data the encoded bytes (type ID + payload)
+     * @param <C>  the client message type
+     * @return decoded client message
+     * @throws IllegalArgumentException if the data contains a server message
+     */
+    @SuppressWarnings("unchecked")
+    public <C> C decodeClientMessage(byte[] data)
+    {
+        int typeId = peekTypeId(data);
+        if (!isClientMessage(typeId))
+        {
+            throw new IllegalArgumentException(
+                    "Expected client message (0x0000-0x7FFF), got type ID: 0x" +
+                            Integer.toHexString(typeId));
+        }
+        return (C) decodeMessage(data);
+    }
+
+    /**
+     * Decodes a server message from bytes.
+     *
+     * <p>Use this on the client side when receiving messages from the server.
+     * The returned value can be used directly with pattern matching on
+     * your sealed server message interface.</p>
+     *
+     * <p>Example:</p>
+     * <pre>{@code
+     * ServerMessage msg = protocol.decodeServerMessage(data);
+     * switch (msg) {
+     *     case LoginResponse r -> handleLoginResponse(r);
+     *     case ChatBroadcast b -> displayChat(b);
+     * }
+     * }</pre>
+     *
+     * @param data the encoded bytes (type ID + payload)
+     * @param <S>  the server message type
+     * @return decoded server message
+     * @throws IllegalArgumentException if the data contains a client message
+     */
+    @SuppressWarnings("unchecked")
+    public <S> S decodeServerMessage(byte[] data)
+    {
+        int typeId = peekTypeId(data);
+        if (!isServerMessage(typeId))
+        {
+            throw new IllegalArgumentException(
+                    "Expected server message (0x8000-0xFFFF), got type ID: 0x" +
+                            Integer.toHexString(typeId));
+        }
+        return (S) decodeMessage(data);
+    }
+
+    /**
+     * Peeks at the type ID without fully decoding the message.
+     *
+     * @param data the encoded message bytes
+     * @return the type ID
+     */
+    public int peekTypeId(byte[] data)
+    {
+        if (data.length < 2)
+        {
+            throw new IllegalArgumentException("Data too short to contain type ID");
+        }
+        return ((data[0] & 0xFF) << 8) | (data[1] & 0xFF);
+    }
+
+    /**
      * Returns the client message base type.
      *
      * @return client message sealed interface
