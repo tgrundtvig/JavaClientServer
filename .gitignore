@@ -43,5 +43,9 @@ build/
 .env.local
 *.log
 
+### Server keys ###
+server-private-key.txt
+server-public-key.txt
+
 ### Docker ###
 docker-compose.override.yml
