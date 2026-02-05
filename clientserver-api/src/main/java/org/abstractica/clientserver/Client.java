@@ -125,6 +125,27 @@ public interface Client extends AutoCloseable
     void onReconnected(Consumer<Session> handler);
 
     /**
+     * Registers a callback for connection instability.
+     *
+     * <p>Called when heartbeat acknowledgments have not been received
+     * within the expected window. The connection may recover on its own;
+     * only session timeout causes actual disconnection.</p>
+     *
+     * @param handler called when the connection becomes unstable
+     */
+    void onConnectionUnstable(Consumer<Session> handler);
+
+    /**
+     * Registers a callback for connection stability recovery.
+     *
+     * <p>Called when heartbeat acknowledgments resume after a period
+     * of instability.</p>
+     *
+     * @param handler called when the connection becomes stable again
+     */
+    void onConnectionStable(Consumer<Session> handler);
+
+    /**
      * Registers a callback for connection failure.
      *
      * <p>Called when the initial connection attempt fails.</p>

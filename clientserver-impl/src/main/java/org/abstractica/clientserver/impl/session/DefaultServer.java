@@ -59,6 +59,8 @@ public class DefaultServer implements Server, SessionCallback
     private final List<BiConsumer<Session, DisconnectReason>> sessionDisconnectedCallbacks;
     private final List<Consumer<Session>> sessionReconnectedCallbacks;
     private final List<Consumer<Session>> sessionExpiredCallbacks;
+    private final List<Consumer<Session>> sessionUnstableCallbacks;
+    private final List<Consumer<Session>> sessionStableCallbacks;
     private ErrorHandler errorHandler;
 
     private final DefaultServerStats stats;
@@ -94,6 +96,8 @@ public class DefaultServer implements Server, SessionCallback
         this.sessionDisconnectedCallbacks = new ArrayList<>();
         this.sessionReconnectedCallbacks = new ArrayList<>();
         this.sessionExpiredCallbacks = new ArrayList<>();
+        this.sessionUnstableCallbacks = new ArrayList<>();
+        this.sessionStableCallbacks = new ArrayList<>();
 
         this.handshakeHandler = new HandshakeHandler(
                 sessionManager,
@@ -206,6 +210,20 @@ public class DefaultServer implements Server, SessionCallback
     }
 
     @Override
+    public void onSessionUnstable(Consumer<Session> handler)
+    {
+        Objects.requireNonNull(handler, "handler");
+        sessionUnstableCallbacks.add(handler);
+    }
+
+    @Override
+    public void onSessionStable(Consumer<Session> handler)
+    {
+        Objects.requireNonNull(handler, "handler");
+        sessionStableCallbacks.add(handler);
+    }
+
+    @Override
     public void onSessionExpired(Consumer<Session> handler)
     {
         Objects.requireNonNull(handler, "handler");
@@ -305,6 +323,23 @@ public class DefaultServer implements Server, SessionCallback
             catch (Exception e)
             {
                 LOG.error("Session expired callback error", e);
+            }
+        }
+    }
+
+    @Override
+    public void onSessionStabilityChanged(DefaultSession session, boolean stable)
+    {
+        List<Consumer<Session>> callbacks = stable ? sessionStableCallbacks : sessionUnstableCallbacks;
+        for (Consumer<Session> callback : callbacks)
+        {
+            try
+            {
+                callback.accept(session);
+            }
+            catch (Exception e)
+            {
+                LOG.error("Session stability callback error", e);
             }
         }
     }

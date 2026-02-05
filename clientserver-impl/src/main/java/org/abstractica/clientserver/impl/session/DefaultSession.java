@@ -46,10 +46,15 @@ public class DefaultSession implements Session
     private final Duration heartbeatInterval;
     private final Duration sessionTimeout;
 
+    // Connection stability detection
+    private static final int MAX_MISSED_HEARTBEATS = 3;
+
     private volatile SocketAddress remoteAddress;
     private volatile SessionState state;
     private volatile long lastActivityMs;
     private volatile long lastHeartbeatSentMs;
+    private volatile long lastHeartbeatAckMs;
+    private volatile boolean connectionStable;
     private volatile Object attachment;
 
     private Thread virtualThread;
@@ -94,6 +99,8 @@ public class DefaultSession implements Session
         this.state = SessionState.CONNECTED;
         this.lastActivityMs = System.currentTimeMillis();
         this.lastHeartbeatSentMs = 0;
+        this.lastHeartbeatAckMs = System.currentTimeMillis();
+        this.connectionStable = true;
         this.running = false;
     }
 
@@ -332,6 +339,8 @@ public class DefaultSession implements Session
     {
         this.state = SessionState.CONNECTED;
         this.lastActivityMs = System.currentTimeMillis();
+        this.lastHeartbeatAckMs = System.currentTimeMillis();
+        this.connectionStable = true;
     }
 
     // ========== Processing Loop ==========
@@ -454,6 +463,16 @@ public class DefaultSession implements Session
             return;
         }
 
+        // Check for missed heartbeats (connection instability detection)
+        long heartbeatThreshold = heartbeatInterval.toMillis() * MAX_MISSED_HEARTBEATS;
+        if (connectionStable && nowMs - lastHeartbeatAckMs > heartbeatThreshold)
+        {
+            connectionStable = false;
+            LOG.warn("Session {} connection unstable ({} missed heartbeats)",
+                    id, MAX_MISSED_HEARTBEATS);
+            callback.onSessionStabilityChanged(this, false);
+        }
+
         // Reliability layer tick (retransmits)
         ReliabilityLayer.TickResult result = reliabilityLayer.tick(nowMs);
         for (Data retransmit : result.retransmits())
@@ -494,8 +513,16 @@ public class DefaultSession implements Session
 
     private void processHeartbeatAck(HeartbeatAck ack)
     {
-        long rtt = System.currentTimeMillis() - ack.echoTimestamp();
+        lastHeartbeatAckMs = System.currentTimeMillis();
+        long rtt = lastHeartbeatAckMs - ack.echoTimestamp();
         reliabilityLayer.updateRtt(rtt);
+
+        if (!connectionStable)
+        {
+            connectionStable = true;
+            LOG.info("Session {} connection stable (heartbeat ack received)", id);
+            callback.onSessionStabilityChanged(this, true);
+        }
     }
 
     private void processDisconnect(Disconnect disconnect)

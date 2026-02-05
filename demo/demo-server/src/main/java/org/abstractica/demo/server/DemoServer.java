@@ -119,6 +119,32 @@ public class DemoServer
             }
         });
 
+        server.onSessionUnstable(session ->
+        {
+            PlayerState state = getPlayerState(session);
+            if (state != null && state.hasJoined())
+            {
+                LOG.warn("Player connection unstable: {}", state.getName());
+            }
+            else
+            {
+                LOG.warn("Session connection unstable: {}", session.getId());
+            }
+        });
+
+        server.onSessionStable(session ->
+        {
+            PlayerState state = getPlayerState(session);
+            if (state != null && state.hasJoined())
+            {
+                LOG.info("Player connection stable: {}", state.getName());
+            }
+            else
+            {
+                LOG.info("Session connection stable: {}", session.getId());
+            }
+        });
+
         server.onSessionExpired(session ->
         {
             PlayerState state = getPlayerState(session);
@@ -416,8 +442,8 @@ public class DemoServer
         Network network = new UdpNetwork();
         if (lossy)
         {
-            network = new LossyNetwork(network, 0.3, Duration.ofMillis(1000));
-            System.out.println("*** LOSSY MODE: 30% packet loss, 1000ms delay ***");
+            network = new LossyNetwork(network, 0.3, Duration.ofMillis(500));
+            System.out.println("*** LOSSY MODE: 30% packet loss, 500ms delay ***");
         }
 
         // Create and start server

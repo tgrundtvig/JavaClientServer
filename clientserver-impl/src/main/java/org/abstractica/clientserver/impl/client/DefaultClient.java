@@ -68,6 +68,8 @@ public class DefaultClient implements Client
     private final List<BiConsumer<Session, DisconnectReason>> disconnectedCallbacks;
     private final List<Consumer<Session>> reconnectedCallbacks;
     private final List<Consumer<DisconnectReason>> connectionFailedCallbacks;
+    private final List<Consumer<Session>> connectionUnstableCallbacks;
+    private final List<Consumer<Session>> connectionStableCallbacks;
     private ErrorHandler errorHandler;
 
     // Connection state
@@ -85,7 +87,7 @@ public class DefaultClient implements Client
     private volatile boolean running;
 
     // Timing
-    private Duration heartbeatInterval = Duration.ofSeconds(5);
+    private Duration heartbeatInterval = Duration.ofSeconds(1);
     private Duration sessionTimeout = Duration.ofMinutes(2);
     private volatile long lastActivityMs;
     private volatile long lastHeartbeatSentMs;
@@ -102,6 +104,7 @@ public class DefaultClient implements Client
     // Disconnect detection
     private static final int MAX_MISSED_HEARTBEATS = 3;
     private volatile long lastHeartbeatAckMs;
+    private volatile boolean connectionStable;
 
     // Auto-reconnect
     private static final int MAX_RECONNECT_ATTEMPTS = 10;
@@ -154,6 +157,8 @@ public class DefaultClient implements Client
         this.disconnectedCallbacks = new ArrayList<>();
         this.reconnectedCallbacks = new ArrayList<>();
         this.connectionFailedCallbacks = new ArrayList<>();
+        this.connectionUnstableCallbacks = new ArrayList<>();
+        this.connectionStableCallbacks = new ArrayList<>();
 
         this.inboundQueue = new LinkedBlockingQueue<>(QUEUE_CAPACITY);
         this.state = ClientState.DISCONNECTED;
@@ -314,6 +319,20 @@ public class DefaultClient implements Client
     }
 
     @Override
+    public void onConnectionUnstable(Consumer<Session> handler)
+    {
+        Objects.requireNonNull(handler, "handler");
+        connectionUnstableCallbacks.add(handler);
+    }
+
+    @Override
+    public void onConnectionStable(Consumer<Session> handler)
+    {
+        Objects.requireNonNull(handler, "handler");
+        connectionStableCallbacks.add(handler);
+    }
+
+    @Override
     public void onConnectionFailed(Consumer<DisconnectReason> handler)
     {
         Objects.requireNonNull(handler, "handler");
@@ -443,6 +462,7 @@ public class DefaultClient implements Client
         state = ClientState.CONNECTED;
         lastActivityMs = System.currentTimeMillis();
         lastHeartbeatAckMs = System.currentTimeMillis();
+        connectionStable = true;
         reconnectAttempts = 0; // Reset on successful connection
 
         // Notify callbacks
@@ -677,6 +697,16 @@ public class DefaultClient implements Client
         long rtt = ack.calculateRtt();
         reliabilityLayer.updateRtt(rtt);
         stats.updateRtt(Duration.ofMillis(rtt));
+
+        if (!connectionStable)
+        {
+            connectionStable = true;
+            LOG.info("Connection stable (heartbeat ack received)");
+            for (Consumer<Session> callback : connectionStableCallbacks)
+            {
+                safeCallback(() -> callback.accept(session));
+            }
+        }
     }
 
     private void handleDisconnect(Disconnect disconnect)
@@ -744,16 +774,19 @@ public class DefaultClient implements Client
             return;
         }
 
-        // Check for missed heartbeats (fast disconnect detection)
-        long disconnectThreshold = heartbeatInterval.toMillis() * MAX_MISSED_HEARTBEATS;
-        if (nowMs - lastHeartbeatAckMs > disconnectThreshold)
+        // Check for missed heartbeats (connection instability detection)
+        long unstableThreshold = heartbeatInterval.toMillis() * MAX_MISSED_HEARTBEATS;
+        if (connectionStable && nowMs - lastHeartbeatAckMs > unstableThreshold)
         {
-            LOG.warn("Server not responding ({} missed heartbeats)", MAX_MISSED_HEARTBEATS);
-            shutdown(new DisconnectReason.Timeout());
-            return;
+            connectionStable = false;
+            LOG.warn("Connection unstable ({} missed heartbeats)", MAX_MISSED_HEARTBEATS);
+            for (Consumer<Session> callback : connectionUnstableCallbacks)
+            {
+                safeCallback(() -> callback.accept(session));
+            }
         }
 
-        // Check for session timeout (longer threshold for session expiry)
+        // Check for session timeout (actual disconnect)
         if (nowMs - lastActivityMs > sessionTimeout.toMillis())
         {
             LOG.warn("Session timeout");

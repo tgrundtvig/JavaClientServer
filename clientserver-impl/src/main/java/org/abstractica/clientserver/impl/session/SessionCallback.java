@@ -40,6 +40,14 @@ public interface SessionCallback
     void onSessionExpired(DefaultSession session);
 
     /**
+     * Notifies that a session's connection stability has changed.
+     *
+     * @param session the session whose stability changed
+     * @param stable  true if connection became stable, false if unstable
+     */
+    void onSessionStabilityChanged(DefaultSession session, boolean stable);
+
+    /**
      * Gets the message handler for a message type.
      *
      * @param messageType the message class

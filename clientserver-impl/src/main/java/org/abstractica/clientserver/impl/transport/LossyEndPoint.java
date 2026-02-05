@@ -69,6 +69,10 @@ public class LossyEndPoint implements EndPoint
             {
                 Thread.currentThread().interrupt();
             }
+            catch (IllegalStateException e)
+            {
+                LOG.debug("LOSSY: Endpoint closed before delayed send completed");
+            }
         });
     }
 

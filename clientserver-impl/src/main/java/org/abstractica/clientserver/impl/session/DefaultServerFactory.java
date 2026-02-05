@@ -35,7 +35,7 @@ public class DefaultServerFactory implements ServerFactory
         private InetAddress bindAddress;
         private int maxConnections = 0; // 0 = unlimited
         private Duration sessionTimeout = Duration.ofMinutes(2);
-        private Duration heartbeatInterval = Duration.ofSeconds(5);
+        private Duration heartbeatInterval = Duration.ofSeconds(1);
         private int maxReliableQueueSize = 256;
         private int maxMessageSize = 65536;
         private Network network; // Optional custom network (defaults to UdpNetwork)

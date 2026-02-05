@@ -105,6 +105,16 @@ public class DemoClient
             connected = true;
             System.out.println("Reconnected to server!");
         });
+
+        client.onConnectionUnstable(session ->
+        {
+            System.out.println("WARNING: Connection unstable - server may be unreachable");
+        });
+
+        client.onConnectionStable(session ->
+        {
+            System.out.println("Connection stable again");
+        });
     }
 
     private void handleWelcome(org.abstractica.clientserver.Session session, ServerMessage.Welcome welcome)
@@ -349,7 +359,7 @@ public class DemoClient
                     System.out.println("  -h, --host <host>  Server host (default: localhost)");
                     System.out.println("  -p, --port <port>  Server port (default: 7777)");
                     System.out.println("  -k, --key <file>   Server public key file (default: server-public-key.txt)");
-                    System.out.println("  --lossy            Simulate bad network (30% loss, 1000ms delay)");
+                    System.out.println("  --lossy            Simulate bad network (30% loss, 500ms delay)");
                     System.exit(0);
                 }
             }
@@ -374,8 +384,8 @@ public class DemoClient
         Network network = new UdpNetwork();
         if (lossy)
         {
-            network = new LossyNetwork(network, 0.3, Duration.ofMillis(1000));
-            System.out.println("*** LOSSY MODE: 30% packet loss, 1000ms delay ***");
+            network = new LossyNetwork(network, 0.3, Duration.ofMillis(500));
+            System.out.println("*** LOSSY MODE: 30% packet loss, 500ms delay ***");
         }
 
         // Create and connect client
