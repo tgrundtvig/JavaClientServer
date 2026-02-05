@@ -13,12 +13,12 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Tests for {@link UdpTransport}.
+ * Tests for {@link UdpEndPoint}.
  */
-class UdpTransportTest
+class UdpEndPointTest
 {
-    private UdpTransport transport1;
-    private UdpTransport transport2;
+    private UdpEndPoint transport1;
+    private UdpEndPoint transport2;
 
     @AfterEach
     void tearDown()
@@ -38,7 +38,7 @@ class UdpTransportTest
     {
         // Set up receiver
         BlockingQueue<ReceivedPacket> received = new ArrayBlockingQueue<>(10);
-        transport1 = UdpTransport.server(0); // ephemeral port
+        transport1 = UdpEndPoint.server(0); // ephemeral port
         transport1.setReceiveHandler((data, source) ->
         {
             byte[] copy = new byte[data.remaining()];
@@ -48,7 +48,7 @@ class UdpTransportTest
         transport1.start();
 
         // Set up sender
-        transport2 = UdpTransport.client();
+        transport2 = UdpEndPoint.client();
         transport2.setReceiveHandler((data, source) -> {});
         transport2.start();
 
@@ -68,7 +68,7 @@ class UdpTransportTest
     void sendAndReceive_multiplePackets() throws InterruptedException
     {
         BlockingQueue<ReceivedPacket> received = new ArrayBlockingQueue<>(10);
-        transport1 = UdpTransport.server(0);
+        transport1 = UdpEndPoint.server(0);
         transport1.setReceiveHandler((data, source) ->
         {
             byte[] copy = new byte[data.remaining()];
@@ -77,7 +77,7 @@ class UdpTransportTest
         });
         transport1.start();
 
-        transport2 = UdpTransport.client();
+        transport2 = UdpEndPoint.client();
         transport2.setReceiveHandler((data, source) -> {});
         transport2.start();
 
@@ -102,7 +102,7 @@ class UdpTransportTest
         BlockingQueue<ReceivedPacket> received1 = new ArrayBlockingQueue<>(10);
         BlockingQueue<ReceivedPacket> received2 = new ArrayBlockingQueue<>(10);
 
-        transport1 = UdpTransport.server(0);
+        transport1 = UdpEndPoint.server(0);
         transport1.setReceiveHandler((data, source) ->
         {
             byte[] copy = new byte[data.remaining()];
@@ -111,7 +111,7 @@ class UdpTransportTest
         });
         transport1.start();
 
-        transport2 = UdpTransport.client();
+        transport2 = UdpEndPoint.client();
         transport2.setReceiveHandler((data, source) ->
         {
             byte[] copy = new byte[data.remaining()];
@@ -136,7 +136,7 @@ class UdpTransportTest
     void sendAndReceive_largePacket() throws InterruptedException
     {
         BlockingQueue<ReceivedPacket> received = new ArrayBlockingQueue<>(10);
-        transport1 = UdpTransport.server(0);
+        transport1 = UdpEndPoint.server(0);
         transport1.setReceiveHandler((data, source) ->
         {
             byte[] copy = new byte[data.remaining()];
@@ -145,7 +145,7 @@ class UdpTransportTest
         });
         transport1.start();
 
-        transport2 = UdpTransport.client();
+        transport2 = UdpEndPoint.client();
         transport2.setReceiveHandler((data, source) -> {});
         transport2.start();
 
@@ -166,7 +166,7 @@ class UdpTransportTest
     @Test
     void getLocalAddress_returnsBindAddress()
     {
-        transport1 = UdpTransport.server(0);
+        transport1 = UdpEndPoint.server(0);
         transport1.setReceiveHandler((data, source) -> {});
         transport1.start();
 
@@ -181,21 +181,21 @@ class UdpTransportTest
     @Test
     void getLocalAddress_beforeStart_returnsNull()
     {
-        transport1 = UdpTransport.server(0);
+        transport1 = UdpEndPoint.server(0);
         assertNull(transport1.getLocalAddress());
     }
 
     @Test
     void start_withoutHandler_throws()
     {
-        transport1 = UdpTransport.server(0);
+        transport1 = UdpEndPoint.server(0);
         assertThrows(IllegalStateException.class, () -> transport1.start());
     }
 
     @Test
     void start_twice_throws()
     {
-        transport1 = UdpTransport.server(0);
+        transport1 = UdpEndPoint.server(0);
         transport1.setReceiveHandler((data, source) -> {});
         transport1.start();
 
@@ -205,7 +205,7 @@ class UdpTransportTest
     @Test
     void send_beforeStart_throws()
     {
-        transport1 = UdpTransport.server(0);
+        transport1 = UdpEndPoint.server(0);
         transport1.setReceiveHandler((data, source) -> {});
 
         assertThrows(IllegalStateException.class, () ->
@@ -216,7 +216,7 @@ class UdpTransportTest
     void close_stopsReceiving() throws InterruptedException
     {
         BlockingQueue<ReceivedPacket> received = new ArrayBlockingQueue<>(10);
-        transport1 = UdpTransport.server(0);
+        transport1 = UdpEndPoint.server(0);
         transport1.setReceiveHandler((data, source) ->
         {
             byte[] copy = new byte[data.remaining()];
@@ -229,7 +229,7 @@ class UdpTransportTest
         transport1.close();
 
         // Try to send to closed transport
-        transport2 = UdpTransport.client();
+        transport2 = UdpEndPoint.client();
         transport2.setReceiveHandler((data, source) -> {});
         transport2.start();
         transport2.send(ByteBuffer.wrap(new byte[]{0x01}), address);
@@ -242,7 +242,7 @@ class UdpTransportTest
     @Test
     void close_canBeCalledMultipleTimes()
     {
-        transport1 = UdpTransport.server(0);
+        transport1 = UdpEndPoint.server(0);
         transport1.setReceiveHandler((data, source) -> {});
         transport1.start();
 
@@ -254,10 +254,10 @@ class UdpTransportTest
     @Test
     void factoryMethods()
     {
-        transport1 = UdpTransport.client();
+        transport1 = UdpEndPoint.client();
         assertNotNull(transport1);
 
-        transport2 = UdpTransport.server(0);
+        transport2 = UdpEndPoint.server(0);
         assertNotNull(transport2);
     }
 

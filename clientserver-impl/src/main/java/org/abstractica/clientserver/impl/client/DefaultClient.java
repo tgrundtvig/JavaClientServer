@@ -24,7 +24,7 @@ import org.abstractica.clientserver.impl.protocol.Reject;
 import org.abstractica.clientserver.impl.protocol.ServerHello;
 import org.abstractica.clientserver.impl.reliability.ReliabilityLayer;
 import org.abstractica.clientserver.impl.serialization.DefaultProtocol;
-import org.abstractica.clientserver.impl.transport.Transport;
+import org.abstractica.clientserver.impl.transport.EndPoint;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -60,7 +60,7 @@ public class DefaultClient implements Client
     private final InetSocketAddress serverAddress;
     private final DefaultProtocol protocol;
     private final PublicKey serverPublicKey;
-    private final Transport transport;
+    private final EndPoint endPoint;
     private final DefaultClientStats stats;
 
     private final Map<Class<?>, MessageHandler<?>> messageHandlers;
@@ -127,13 +127,13 @@ public class DefaultClient implements Client
             InetSocketAddress serverAddress,
             DefaultProtocol protocol,
             PublicKey serverPublicKey,
-            Transport transport
+            EndPoint endPoint
     )
     {
         this.serverAddress = Objects.requireNonNull(serverAddress, "serverAddress");
         this.protocol = Objects.requireNonNull(protocol, "protocol");
         this.serverPublicKey = Objects.requireNonNull(serverPublicKey, "serverPublicKey");
-        this.transport = Objects.requireNonNull(transport, "transport");
+        this.endPoint = Objects.requireNonNull(endPoint, "endPoint");
 
         this.stats = new DefaultClientStats();
 
@@ -164,8 +164,8 @@ public class DefaultClient implements Client
         running = true;
 
         // Start transport
-        transport.setReceiveHandler(this::onReceive);
-        transport.start();
+        endPoint.setReceiveHandler(this::onReceive);
+        endPoint.start();
 
         // Start processing thread
         processingThread = Thread.ofVirtual()
@@ -197,7 +197,7 @@ public class DefaultClient implements Client
             Disconnect disconnect = new Disconnect(Disconnect.DisconnectCode.NORMAL, "Client disconnect");
             ByteBuffer encoded = PacketCodec.encode(disconnect);
             ByteBuffer encrypted = encryptor.encrypt(encoded);
-            transport.send(encrypted, serverAddress);
+            endPoint.send(encrypted, serverAddress);
         }
 
         shutdown(null);
@@ -338,7 +338,7 @@ public class DefaultClient implements Client
         handshakeRetryCount = 0;
         lastHandshakeSentMs = System.currentTimeMillis();
 
-        transport.send(encoded, serverAddress);
+        endPoint.send(encoded, serverAddress);
 
         state = ClientState.AWAITING_SERVER_HELLO;
         lastActivityMs = System.currentTimeMillis();
@@ -396,7 +396,7 @@ public class DefaultClient implements Client
         handshakeRetryCount = 0;
         lastHandshakeSentMs = System.currentTimeMillis();
 
-        transport.send(encrypted, serverAddress);
+        endPoint.send(encrypted, serverAddress);
         state = ClientState.AWAITING_ACCEPT;
 
         LOG.debug("Connect sent");
@@ -746,7 +746,7 @@ public class DefaultClient implements Client
 
         ByteBuffer toSend = storedPacket.duplicate();
         toSend.rewind();
-        transport.send(toSend, serverAddress);
+        endPoint.send(toSend, serverAddress);
 
         LOG.debug("{} retransmit #{}", packetName, handshakeRetryCount);
     }
@@ -765,7 +765,7 @@ public class DefaultClient implements Client
         };
 
         ByteBuffer encrypted = encryptor.encrypt(encoded);
-        transport.send(encrypted, serverAddress);
+        endPoint.send(encrypted, serverAddress);
         stats.recordBytes(encrypted.remaining());
         stats.recordPacket(false);
     }
@@ -792,7 +792,7 @@ public class DefaultClient implements Client
         }
 
         // Close transport
-        transport.close();
+        endPoint.close();
 
         // Notify callbacks
         if (reason != null && previousState == ClientState.CONNECTED && session != null)

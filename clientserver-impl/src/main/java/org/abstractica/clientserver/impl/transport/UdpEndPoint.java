@@ -22,9 +22,9 @@ import java.util.function.BiConsumer;
  * dispatches them to the configured handler. Sending is done directly
  * from the calling thread.</p>
  */
-public class UdpTransport implements Transport
+public class UdpEndPoint implements EndPoint
 {
-    private static final Logger LOG = LoggerFactory.getLogger(UdpTransport.class);
+    private static final Logger LOG = LoggerFactory.getLogger(UdpEndPoint.class);
     private static final int DEFAULT_BUFFER_SIZE = 65536;
 
     private final InetSocketAddress bindAddress;
@@ -41,7 +41,7 @@ public class UdpTransport implements Transport
      *
      * @param bindAddress the address and port to bind to
      */
-    public UdpTransport(InetSocketAddress bindAddress)
+    public UdpEndPoint(InetSocketAddress bindAddress)
     {
         this(bindAddress, DEFAULT_BUFFER_SIZE);
     }
@@ -52,7 +52,7 @@ public class UdpTransport implements Transport
      * @param bindAddress       the address and port to bind to
      * @param receiveBufferSize the size of the receive buffer
      */
-    public UdpTransport(InetSocketAddress bindAddress, int receiveBufferSize)
+    public UdpEndPoint(InetSocketAddress bindAddress, int receiveBufferSize)
     {
         this.bindAddress = Objects.requireNonNull(bindAddress, "bindAddress");
         this.receiveBufferSize = receiveBufferSize;
@@ -63,9 +63,9 @@ public class UdpTransport implements Transport
      *
      * @return a new client transport
      */
-    public static UdpTransport client()
+    public static UdpEndPoint client()
     {
-        return new UdpTransport(new InetSocketAddress(0));
+        return new UdpEndPoint(new InetSocketAddress(0));
     }
 
     /**
@@ -74,9 +74,9 @@ public class UdpTransport implements Transport
      * @param port the port to bind to
      * @return a new server transport
      */
-    public static UdpTransport server(int port)
+    public static UdpEndPoint server(int port)
     {
-        return new UdpTransport(new InetSocketAddress(port));
+        return new UdpEndPoint(new InetSocketAddress(port));
     }
 
     /**
@@ -86,9 +86,9 @@ public class UdpTransport implements Transport
      * @param port    the port to bind to
      * @return a new server transport
      */
-    public static UdpTransport server(String address, int port)
+    public static UdpEndPoint server(String address, int port)
     {
-        return new UdpTransport(new InetSocketAddress(address, port));
+        return new UdpEndPoint(new InetSocketAddress(address, port));
     }
 
     @Override

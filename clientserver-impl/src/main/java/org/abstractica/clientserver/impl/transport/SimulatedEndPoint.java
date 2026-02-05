@@ -24,21 +24,34 @@ import java.util.function.BiConsumer;
  * <p>This transport allows simulation of packet loss, latency, jitter,
  * and packet reordering for testing reliability and reconnection logic.</p>
  *
- * <p>Two SimulatedTransports can be connected together to simulate
- * a network link between client and server without actual UDP sockets.</p>
+ * <p>Transports must be created on a {@link SimulatedNetwork} which routes
+ * packets by destination address. Use the network's factory methods:</p>
+ *
+ * <pre>{@code
+ * SimulatedNetwork network = new SimulatedNetwork();
+ *
+ * // Create endpoints via factory
+ * TestEndPoint server = network.createTestEndPoint(serverAddress);
+ * TestEndPoint client1 = network.createTestEndPoint();
+ * TestEndPoint client2 = network.createTestEndPoint();
+ *
+ * // Configure network conditions
+ * client1.setPacketLossRate(0.1);
+ * server.setLatency(Duration.ofMillis(50));
+ * }</pre>
  */
-public class SimulatedTransport implements Transport
+public class SimulatedEndPoint implements TestEndPoint
 {
-    private static final Logger LOG = LoggerFactory.getLogger(SimulatedTransport.class);
+    private static final Logger LOG = LoggerFactory.getLogger(SimulatedEndPoint.class);
     private static final AtomicInteger PORT_COUNTER = new AtomicInteger(50000);
 
     private final SocketAddress localAddress;
+    private final SimulatedNetwork network;
     private final Random random;
     private final DelayQueue<DelayedPacket> deliveryQueue;
     private final BlockingQueue<Runnable> pendingDeliveries;
 
     private BiConsumer<ByteBuffer, SocketAddress> receiveHandler;
-    private SimulatedTransport peer;
     private Thread deliveryThread;
     private final AtomicBoolean running = new AtomicBoolean(false);
 
@@ -59,40 +72,37 @@ public class SimulatedTransport implements Transport
     private final AtomicInteger packetsDelivered = new AtomicInteger(0);
 
     /**
-     * Creates a simulated transport with an auto-assigned local address.
+     * Creates a simulated transport with an auto-assigned local address on the given network.
+     *
+     * <p>Prefer using {@link SimulatedNetwork#createTransport()} instead.</p>
+     *
+     * @param network the network to join
      */
-    public SimulatedTransport()
+    SimulatedEndPoint(SimulatedNetwork network)
     {
-        this(new InetSocketAddress("127.0.0.1", PORT_COUNTER.getAndIncrement()));
+        this(new InetSocketAddress("127.0.0.1", PORT_COUNTER.getAndIncrement()), network);
     }
 
     /**
-     * Creates a simulated transport with the specified local address.
+     * Creates a simulated transport with the specified local address on the given network.
+     *
+     * <p>Prefer using {@link SimulatedNetwork#createTransport(SocketAddress)} instead.</p>
      *
      * @param localAddress the local address for this transport
+     * @param network      the network to join
      */
-    public SimulatedTransport(SocketAddress localAddress)
+    SimulatedEndPoint(SocketAddress localAddress, SimulatedNetwork network)
     {
         this.localAddress = Objects.requireNonNull(localAddress, "localAddress");
+        this.network = Objects.requireNonNull(network, "network");
         this.random = new Random();
         this.deliveryQueue = new DelayQueue<>();
         this.pendingDeliveries = new LinkedBlockingQueue<>();
+
+        network.register(this);
     }
 
     // ========== Configuration ==========
-
-    /**
-     * Connects this transport to a peer transport.
-     *
-     * <p>Packets sent from this transport will be delivered to the peer,
-     * and vice versa. Both transports must be connected to each other.</p>
-     *
-     * @param peer the peer transport
-     */
-    public void connectTo(SimulatedTransport peer)
-    {
-        this.peer = Objects.requireNonNull(peer, "peer");
-    }
 
     /**
      * Sets the packet loss rate.
@@ -278,9 +288,12 @@ public class SimulatedTransport implements Transport
             throw new IllegalStateException("Transport not running");
         }
 
-        if (peer == null)
+        // Find target transport
+        SimulatedEndPoint target = network.lookup(destination);
+        if (target == null)
         {
-            LOG.warn("No peer connected, dropping packet");
+            LOG.debug("No transport at {}, dropping packet", destination);
+            packetsDropped.incrementAndGet();
             return;
         }
 
@@ -295,7 +308,7 @@ public class SimulatedTransport implements Transport
             return;
         }
 
-        // Check random packet loss
+        // Check random packet loss (transport-level)
         if (packetLossRate > 0.0 && random.nextDouble() < packetLossRate)
         {
             packetsDropped.incrementAndGet();
@@ -303,12 +316,20 @@ public class SimulatedTransport implements Transport
             return;
         }
 
+        // Check network-level packet loss
+        if (network.getPacketLossRate() > 0.0 && random.nextDouble() < network.getPacketLossRate())
+        {
+            packetsDropped.incrementAndGet();
+            LOG.debug("Dropped packet (network loss)");
+            return;
+        }
+
         // Copy data for async delivery
         byte[] copy = new byte[data.remaining()];
         data.get(copy);
 
-        // Calculate delivery delay
-        long delayMs = calculateDelay();
+        // Calculate delivery delay (transport-level + network-level)
+        long delayMs = calculateDelay() + calculateNetworkDelay();
 
         // Check one-shot delay
         if (delayNextPacket != null)
@@ -325,8 +346,11 @@ public class SimulatedTransport implements Transport
         }
 
         // Schedule delivery
+        // Translate wildcard source address to match destination's perspective
+        // (in real UDP, packets from 0.0.0.0:port appear as coming from specific interface IP)
+        SocketAddress sourceAddr = translateSourceAddress(destination);
         long deliveryTime = System.currentTimeMillis() + delayMs;
-        peer.scheduleDelivery(copy, localAddress, deliveryTime);
+        target.scheduleDelivery(copy, sourceAddr, deliveryTime);
     }
 
     @Override
@@ -337,7 +361,13 @@ public class SimulatedTransport implements Transport
             return;
         }
 
-        LOG.info("Closing simulated transport");
+        LOG.info("Closing simulated transport on {}", localAddress);
+
+        // Unregister from network
+        if (network != null)
+        {
+            network.unregister(this);
+        }
 
         if (deliveryThread != null)
         {
@@ -361,7 +391,41 @@ public class SimulatedTransport implements Transport
         return localAddress;
     }
 
+    /**
+     * Returns the network this transport is connected to.
+     *
+     * @return the network
+     */
+    public SimulatedNetwork getNetwork()
+    {
+        return network;
+    }
+
     // ========== Internal ==========
+
+    /**
+     * Translates a wildcard source address to a specific address.
+     *
+     * <p>In real UDP, packets from a socket bound to 0.0.0.0 appear as coming
+     * from the specific interface IP used for that connection. This method
+     * simulates that behavior by using the destination's IP with the source's port.</p>
+     */
+    private SocketAddress translateSourceAddress(SocketAddress destination)
+    {
+        if (!(localAddress instanceof InetSocketAddress localInet) ||
+            !(destination instanceof InetSocketAddress destInet))
+        {
+            return localAddress;
+        }
+
+        // If our local address is a wildcard (0.0.0.0), translate to destination's IP
+        if (localInet.getAddress().isAnyLocalAddress())
+        {
+            return new InetSocketAddress(destInet.getAddress(), localInet.getPort());
+        }
+
+        return localAddress;
+    }
 
     private long calculateDelay()
     {
@@ -372,6 +436,21 @@ public class SimulatedTransport implements Transport
 
         long min = minLatency.toMillis();
         long max = maxLatency.toMillis();
+        return min + (long) (random.nextDouble() * (max - min));
+    }
+
+    private long calculateNetworkDelay()
+    {
+        Duration netMin = network.getMinLatency();
+        Duration netMax = network.getMaxLatency();
+
+        if (netMin.equals(netMax))
+        {
+            return netMin.toMillis();
+        }
+
+        long min = netMin.toMillis();
+        long max = netMax.toMillis();
         return min + (long) (random.nextDouble() * (max - min));
     }
 

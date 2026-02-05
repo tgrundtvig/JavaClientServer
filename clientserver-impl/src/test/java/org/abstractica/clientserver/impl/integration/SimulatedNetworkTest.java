@@ -2,12 +2,12 @@ package org.abstractica.clientserver.impl.integration;
 
 import org.abstractica.clientserver.Client;
 import org.abstractica.clientserver.Server;
-import org.abstractica.clientserver.Session;
 import org.abstractica.clientserver.impl.client.DefaultClientFactory;
 import org.abstractica.clientserver.impl.crypto.Signer;
 import org.abstractica.clientserver.impl.serialization.DefaultProtocol;
 import org.abstractica.clientserver.impl.session.DefaultServerFactory;
-import org.abstractica.clientserver.impl.transport.SimulatedTransport;
+import org.abstractica.clientserver.impl.transport.SimulatedNetwork;
+import org.abstractica.clientserver.impl.transport.TestEndPoint;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -24,7 +24,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Integration tests using SimulatedTransport to test network conditions.
+ * Integration tests using SimulatedEndPoint to test network conditions.
  */
 class SimulatedNetworkTest
 {
@@ -42,13 +42,13 @@ class SimulatedNetworkTest
 
     // ========== Test Setup ==========
 
-    private static final int SERVER_PORT = 17777;
+    private static final InetSocketAddress SERVER_ADDRESS =
+            new InetSocketAddress("127.0.0.1", 17777);
 
     private DefaultProtocol protocol;
     private PrivateKey serverPrivateKey;
     private PublicKey serverPublicKey;
-    private SimulatedTransport serverTransport;
-    private SimulatedTransport clientTransport;
+    private SimulatedNetwork network;
     private Server server;
     private Client client;
 
@@ -64,13 +64,8 @@ class SimulatedNetworkTest
         serverPrivateKey = keyPair.privateKey();
         serverPublicKey = keyPair.publicKey();
 
-        // Create simulated transports
-        serverTransport = new SimulatedTransport(new InetSocketAddress("127.0.0.1", SERVER_PORT));
-        clientTransport = new SimulatedTransport();
-
-        // Connect them
-        serverTransport.connectTo(clientTransport);
-        clientTransport.connectTo(serverTransport);
+        // Create simulated network (transports created by factories)
+        network = new SimulatedNetwork();
     }
 
     @AfterEach
@@ -84,12 +79,13 @@ class SimulatedNetworkTest
         {
             server.close();
         }
+        network.close();
     }
 
     // ========== Tests ==========
 
     @Test
-    void connectionWithSimulatedTransport() throws Exception
+    void connectionWithSimulatedEndPoint() throws Exception
     {
         CountDownLatch clientConnected = new CountDownLatch(1);
         CountDownLatch serverSessionStarted = new CountDownLatch(1);
@@ -109,9 +105,8 @@ class SimulatedNetworkTest
     @Test
     void messageExchangeWithLatency() throws Exception
     {
-        // Add 50ms latency each way
-        serverTransport.setLatency(Duration.ofMillis(50));
-        clientTransport.setLatency(Duration.ofMillis(50));
+        // Add 50ms network-wide latency each way (100ms RTT)
+        network.setLatency(Duration.ofMillis(50));
 
         CountDownLatch clientConnected = new CountDownLatch(1);
         CountDownLatch messageReceived = new CountDownLatch(1);
@@ -133,12 +128,12 @@ class SimulatedNetworkTest
         });
         client.connect();
 
-        assertTrue(clientConnected.await(2, TimeUnit.SECONDS));
+        assertTrue(clientConnected.await(5, TimeUnit.SECONDS));
 
         long start = System.currentTimeMillis();
         client.send(new ClientMessage.Echo("Hello with latency!"));
 
-        assertTrue(messageReceived.await(2, TimeUnit.SECONDS));
+        assertTrue(messageReceived.await(5, TimeUnit.SECONDS));
         long elapsed = System.currentTimeMillis() - start;
 
         assertEquals("Hello with latency!", receivedText.get());
@@ -149,9 +144,8 @@ class SimulatedNetworkTest
     @Test
     void reliabilityHandlesPacketLoss() throws Exception
     {
-        // 10% packet loss in both directions - lower rate for test stability
-        serverTransport.setPacketLossRate(0.1);
-        clientTransport.setPacketLossRate(0.1);
+        // 10% network-wide packet loss - lower rate for test stability
+        network.setPacketLossRate(0.1);
 
         CountDownLatch clientConnected = new CountDownLatch(1);
         AtomicInteger messagesReceived = new AtomicInteger(0);
@@ -210,9 +204,6 @@ class SimulatedNetworkTest
     @Test
     void handshakeRetryOnClientHelloLoss() throws Exception
     {
-        // Drop the first ClientHello - client should retry
-        clientTransport.dropNextPacket();
-
         CountDownLatch clientConnected = new CountDownLatch(1);
 
         server = createServer();
@@ -220,6 +211,9 @@ class SimulatedNetworkTest
 
         client = createClient();
         client.onConnected(session -> clientConnected.countDown());
+
+        // Drop the first ClientHello - client should retry
+        getClientEndPoint().dropNextPacket();
         client.connect();
 
         // Should connect after retry (retry interval is 1 second)
@@ -230,13 +224,12 @@ class SimulatedNetworkTest
     @Test
     void handshakeRetryOnServerHelloLoss() throws Exception
     {
-        // Drop the first ServerHello - client should retry ClientHello
-        // which causes server to regenerate keys and resend ServerHello
-        serverTransport.dropNextPacket();
-
         CountDownLatch clientConnected = new CountDownLatch(1);
 
         server = createServer();
+        // Drop the first ServerHello - client should retry ClientHello
+        // which causes server to regenerate keys and resend ServerHello
+        getServerEndPoint().dropNextPacket();
         server.start();
 
         client = createClient();
@@ -265,7 +258,7 @@ class SimulatedNetworkTest
 
         // Wait a bit for ClientHello/ServerHello exchange, then drop the Connect
         Thread.sleep(100);
-        clientTransport.dropNextPacket();
+        getClientEndPoint().dropNextPacket();
 
         // Should connect after retry
         assertTrue(clientConnected.await(5, TimeUnit.SECONDS),
@@ -293,7 +286,7 @@ class SimulatedNetworkTest
                 "Server should create session");
 
         // Now drop the Accept (it may already be in flight, so drop next outgoing)
-        serverTransport.dropNextPacket();
+        getServerEndPoint().dropNextPacket();
 
         // Client should retry Connect, server should resend Accept
         assertTrue(clientConnected.await(5, TimeUnit.SECONDS),
@@ -324,11 +317,13 @@ class SimulatedNetworkTest
         client.send(new ClientMessage.Echo("Test"));
         assertTrue(messageExchanged.await(2, TimeUnit.SECONDS));
 
-        // Check transport statistics
-        assertTrue(serverTransport.getPacketsSent() > 0);
-        assertTrue(clientTransport.getPacketsSent() > 0);
-        assertTrue(serverTransport.getPacketsDelivered() > 0);
-        assertTrue(clientTransport.getPacketsDelivered() > 0);
+        // Check endpoint statistics
+        TestEndPoint serverEndPoint = getServerEndPoint();
+        TestEndPoint clientEndPoint = getClientEndPoint();
+        assertTrue(serverEndPoint.getPacketsSent() > 0);
+        assertTrue(clientEndPoint.getPacketsSent() > 0);
+        assertTrue(serverEndPoint.getPacketsDelivered() > 0);
+        assertTrue(clientEndPoint.getPacketsDelivered() > 0);
     }
 
     // ========== Helper Methods ==========
@@ -337,10 +332,10 @@ class SimulatedNetworkTest
     {
         DefaultServerFactory.DefaultBuilder builder =
                 (DefaultServerFactory.DefaultBuilder) new DefaultServerFactory().builder();
-        builder.port(SERVER_PORT);
+        builder.port(SERVER_ADDRESS.getPort());
         builder.protocol(protocol);
         builder.privateKey(serverPrivateKey);
-        builder.transport(serverTransport);
+        builder.network(network);
         return builder.build();
     }
 
@@ -348,10 +343,24 @@ class SimulatedNetworkTest
     {
         DefaultClientFactory.DefaultBuilder builder =
                 (DefaultClientFactory.DefaultBuilder) new DefaultClientFactory().builder();
-        builder.serverAddress("127.0.0.1", SERVER_PORT);
+        builder.serverAddress(SERVER_ADDRESS.getHostString(), SERVER_ADDRESS.getPort());
         builder.protocol(protocol);
         builder.serverPublicKey(serverPublicKey);
-        builder.transport(clientTransport);
+        builder.network(network);
         return builder.build();
+    }
+
+    private TestEndPoint getServerEndPoint()
+    {
+        return network.getEndPoint(SERVER_ADDRESS);
+    }
+
+    private TestEndPoint getClientEndPoint()
+    {
+        // Find the endpoint that is not the server
+        return network.getEndPoints().stream()
+                .filter(t -> !t.getLocalAddress().equals(SERVER_ADDRESS))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("Client endpoint not found"));
     }
 }

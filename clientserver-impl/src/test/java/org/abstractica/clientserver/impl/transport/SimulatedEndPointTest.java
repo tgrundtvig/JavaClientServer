@@ -16,29 +16,28 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Tests for {@link SimulatedTransport}.
+ * Tests for {@link SimulatedEndPoint}.
  */
-class SimulatedTransportTest
+class SimulatedEndPointTest
 {
-    private SimulatedTransport transport1;
-    private SimulatedTransport transport2;
+    private SimulatedNetwork network;
+    private SimulatedEndPoint transport1;
+    private SimulatedEndPoint transport2;
 
     @BeforeEach
     void setUp()
     {
-        transport1 = new SimulatedTransport(new InetSocketAddress("127.0.0.1", 10001));
-        transport2 = new SimulatedTransport(new InetSocketAddress("127.0.0.1", 10002));
-
-        // Connect them to each other
-        transport1.connectTo(transport2);
-        transport2.connectTo(transport1);
+        network = new SimulatedNetwork();
+        transport1 = (SimulatedEndPoint) network.createTestEndPoint(
+                new InetSocketAddress("127.0.0.1", 10001));
+        transport2 = (SimulatedEndPoint) network.createTestEndPoint(
+                new InetSocketAddress("127.0.0.1", 10002));
     }
 
     @AfterEach
     void tearDown()
     {
-        transport1.close();
-        transport2.close();
+        network.close();
     }
 
     // ========== Basic Functionality ==========

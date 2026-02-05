@@ -4,8 +4,9 @@ import org.abstractica.clientserver.Protocol;
 import org.abstractica.clientserver.Server;
 import org.abstractica.clientserver.ServerFactory;
 import org.abstractica.clientserver.impl.serialization.DefaultProtocol;
-import org.abstractica.clientserver.impl.transport.Transport;
-import org.abstractica.clientserver.impl.transport.UdpTransport;
+import org.abstractica.clientserver.impl.transport.EndPoint;
+import org.abstractica.clientserver.impl.transport.Network;
+import org.abstractica.clientserver.impl.transport.UdpNetwork;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
@@ -37,7 +38,7 @@ public class DefaultServerFactory implements ServerFactory
         private Duration heartbeatInterval = Duration.ofSeconds(5);
         private int maxReliableQueueSize = 256;
         private int maxMessageSize = 65536;
-        private Transport customTransport; // Optional custom transport for testing
+        private Network network; // Optional custom network (defaults to UdpNetwork)
 
         @Override
         public Builder port(int port)
@@ -135,16 +136,18 @@ public class DefaultServerFactory implements ServerFactory
         }
 
         /**
-         * Sets a custom transport for testing purposes.
+         * Sets the network to use for creating endpoints.
          *
-         * <p>If not set, a UdpTransport will be created automatically.</p>
+         * <p>If not set, {@link UdpNetwork} will be used for real UDP communication.
+         * Use {@link org.abstractica.clientserver.impl.transport.SimulatedNetwork}
+         * for testing or local development.</p>
          *
-         * @param transport the transport to use
+         * @param network the network to use
          * @return this builder
          */
-        public DefaultBuilder transport(Transport transport)
+        public DefaultBuilder network(Network network)
         {
-            this.customTransport = transport;
+            this.network = network;
             return this;
         }
 
@@ -176,20 +179,13 @@ public class DefaultServerFactory implements ServerFactory
                 socketAddress = new InetSocketAddress(port);
             }
 
-            // Create transport (use custom if provided, otherwise create UDP)
-            Transport transport;
-            if (customTransport != null)
-            {
-                transport = customTransport;
-            }
-            else
-            {
-                transport = new UdpTransport(socketAddress);
-            }
+            // Create endpoint from network (default to UdpNetwork)
+            Network net = (network != null) ? network : new UdpNetwork();
+            EndPoint endPoint = net.createEndPoint(socketAddress);
 
             // Create server
             return new DefaultServer(
-                    transport,
+                    endPoint,
                     protocol,
                     privateKey,
                     heartbeatInterval,

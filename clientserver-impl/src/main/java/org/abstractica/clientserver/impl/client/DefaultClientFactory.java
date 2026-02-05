@@ -4,8 +4,9 @@ import org.abstractica.clientserver.Client;
 import org.abstractica.clientserver.ClientFactory;
 import org.abstractica.clientserver.Protocol;
 import org.abstractica.clientserver.impl.serialization.DefaultProtocol;
-import org.abstractica.clientserver.impl.transport.Transport;
-import org.abstractica.clientserver.impl.transport.UdpTransport;
+import org.abstractica.clientserver.impl.transport.EndPoint;
+import org.abstractica.clientserver.impl.transport.Network;
+import org.abstractica.clientserver.impl.transport.UdpNetwork;
 
 import java.net.InetSocketAddress;
 import java.security.PublicKey;
@@ -28,7 +29,7 @@ public class DefaultClientFactory implements ClientFactory
         private int port;
         private DefaultProtocol protocol;
         private PublicKey serverPublicKey;
-        private Transport customTransport; // Optional custom transport for testing
+        private Network network; // Optional custom network (defaults to UdpNetwork)
 
         @Override
         public Builder serverAddress(String host, int port)
@@ -63,16 +64,18 @@ public class DefaultClientFactory implements ClientFactory
         }
 
         /**
-         * Sets a custom transport for testing purposes.
+         * Sets the network to use for creating endpoints.
          *
-         * <p>If not set, a UdpTransport will be created automatically.</p>
+         * <p>If not set, {@link UdpNetwork} will be used for real UDP communication.
+         * Use {@link org.abstractica.clientserver.impl.transport.SimulatedNetwork}
+         * for testing or local development.</p>
          *
-         * @param transport the transport to use
+         * @param network the network to use
          * @return this builder
          */
-        public DefaultBuilder transport(Transport transport)
+        public DefaultBuilder network(Network network)
         {
-            this.customTransport = transport;
+            this.network = network;
             return this;
         }
 
@@ -94,18 +97,11 @@ public class DefaultClientFactory implements ClientFactory
 
             InetSocketAddress address = new InetSocketAddress(host, port);
 
-            // Create transport (use custom if provided, otherwise create UDP)
-            Transport transport;
-            if (customTransport != null)
-            {
-                transport = customTransport;
-            }
-            else
-            {
-                transport = UdpTransport.client();
-            }
+            // Create endpoint from network (default to UdpNetwork)
+            Network net = (network != null) ? network : new UdpNetwork();
+            EndPoint endPoint = net.createEndPoint();
 
-            return new DefaultClient(address, protocol, serverPublicKey, transport);
+            return new DefaultClient(address, protocol, serverPublicKey, endPoint);
         }
     }
 }

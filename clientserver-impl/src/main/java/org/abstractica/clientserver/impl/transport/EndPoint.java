@@ -5,13 +5,16 @@ import java.nio.ByteBuffer;
 import java.util.function.BiConsumer;
 
 /**
- * Low-level transport for sending and receiving raw bytes.
+ * A network endpoint for sending and receiving raw bytes.
  *
- * <p>Transport handles the physical network communication without any
- * knowledge of packet structure, encryption, or reliability. It simply
- * moves bytes between endpoints.</p>
+ * <p>EndPoint represents a bound socket at a specific address/port that can
+ * send packets to destinations and receive packets from any source. It handles
+ * physical network communication without knowledge of packet structure,
+ * encryption, or reliability.</p>
+ *
+ * @see TestEndPoint for testing with simulated network conditions
  */
-public interface Transport extends AutoCloseable
+public interface EndPoint extends AutoCloseable
 {
     /**
      * Sends data to a destination address.
@@ -26,7 +29,7 @@ public interface Transport extends AutoCloseable
     /**
      * Sets the handler for received data.
      *
-     * <p>The handler will be called from the transport's I/O thread
+     * <p>The handler will be called from the endpoint's I/O thread
      * whenever data is received. The handler must not block.</p>
      *
      * <p>The ByteBuffer passed to the handler is only valid during the
@@ -37,21 +40,21 @@ public interface Transport extends AutoCloseable
     void setReceiveHandler(BiConsumer<ByteBuffer, SocketAddress> handler);
 
     /**
-     * Starts the transport.
+     * Starts the endpoint.
      *
-     * <p>For server transports, this binds to the configured port and begins
-     * accepting packets. For client transports, this opens the socket.</p>
+     * <p>For server endpoints, this binds to the configured port and begins
+     * accepting packets. For client endpoints, this opens the socket.</p>
      */
     void start();
 
     /**
-     * Closes the transport and releases resources.
+     * Closes the endpoint and releases resources.
      */
     @Override
     void close();
 
     /**
-     * Returns the local address this transport is bound to.
+     * Returns the local address this endpoint is bound to.
      *
      * @return the local socket address, or null if not bound
      */

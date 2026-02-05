@@ -20,7 +20,7 @@ import org.abstractica.clientserver.impl.protocol.PacketCodec;
 import org.abstractica.clientserver.impl.protocol.PacketType;
 import org.abstractica.clientserver.impl.reliability.ReliabilityLayer;
 import org.abstractica.clientserver.impl.serialization.DefaultProtocol;
-import org.abstractica.clientserver.impl.transport.Transport;
+import org.abstractica.clientserver.impl.transport.EndPoint;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -47,7 +47,7 @@ public class DefaultServer implements Server, SessionCallback
 {
     private static final Logger LOG = LoggerFactory.getLogger(DefaultServer.class);
 
-    private final Transport transport;
+    private final EndPoint endPoint;
     private final SessionManager sessionManager;
     private final HandshakeHandler handshakeHandler;
     private final DefaultProtocol protocol;
@@ -73,7 +73,7 @@ public class DefaultServer implements Server, SessionCallback
      * <p>Use {@link DefaultServerFactory} to create instances.</p>
      */
     DefaultServer(
-            Transport transport,
+            EndPoint endPoint,
             DefaultProtocol protocol,
             PrivateKey serverPrivateKey,
             Duration heartbeatInterval,
@@ -81,7 +81,7 @@ public class DefaultServer implements Server, SessionCallback
             int maxConnections
     )
     {
-        this.transport = Objects.requireNonNull(transport, "transport");
+        this.endPoint = Objects.requireNonNull(endPoint, "endPoint");
         this.protocol = Objects.requireNonNull(protocol, "protocol");
         this.heartbeatInterval = Objects.requireNonNull(heartbeatInterval, "heartbeatInterval");
         this.sessionTimeout = Objects.requireNonNull(sessionTimeout, "sessionTimeout");
@@ -123,8 +123,8 @@ public class DefaultServer implements Server, SessionCallback
         LOG.info("Starting server");
 
         // Set up transport receive handler
-        transport.setReceiveHandler(this::onReceive);
-        transport.start();
+        endPoint.setReceiveHandler(this::onReceive);
+        endPoint.start();
 
         running = true;
         acceptingConnections = true;
@@ -134,7 +134,7 @@ public class DefaultServer implements Server, SessionCallback
                 .name("server-tick")
                 .start(this::tickLoop);
 
-        LOG.info("Server started on {}", transport.getLocalAddress());
+        LOG.info("Server started on {}", endPoint.getLocalAddress());
     }
 
     @Override
@@ -171,7 +171,7 @@ public class DefaultServer implements Server, SessionCallback
         }
 
         // Close transport
-        transport.close();
+        endPoint.close();
 
         LOG.info("Server closed");
     }
@@ -256,7 +256,7 @@ public class DefaultServer implements Server, SessionCallback
     @Override
     public void sendPacket(ByteBuffer packet, SocketAddress destination)
     {
-        transport.send(packet, destination);
+        endPoint.send(packet, destination);
         stats.recordBytes(packet.remaining());
     }
 
@@ -445,7 +445,7 @@ public class DefaultServer implements Server, SessionCallback
 
         ByteBuffer encoded = PacketCodec.encode(accept);
         ByteBuffer encrypted = session.getEncryptor().encrypt(encoded);
-        transport.send(encrypted, to);
+        endPoint.send(encrypted, to);
     }
 
     // ========== Tick Loop ==========
