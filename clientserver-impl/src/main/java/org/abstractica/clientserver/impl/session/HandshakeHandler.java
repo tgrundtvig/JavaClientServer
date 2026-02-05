@@ -77,6 +77,9 @@ public class HandshakeHandler
     /**
      * Handles a ClientHello packet.
      *
+     * <p>If a pending handshake already exists for this address (CLIENT_HELLO retransmission),
+     * re-sends the cached SERVER_HELLO. Otherwise creates a new handshake.</p>
+     *
      * @param clientHello the received packet
      * @param from        the sender's address
      */
@@ -88,8 +91,10 @@ public class HandshakeHandler
         PendingHandshake existing = sessionManager.findPendingHandshake(from);
         if (existing != null)
         {
-            // Client may have retried - remove old pending handshake
-            sessionManager.removePendingHandshake(from);
+            // CLIENT_HELLO retransmission - resend cached SERVER_HELLO
+            LOG.debug("Resending cached ServerHello to {} (ClientHello retransmit)", from);
+            packetSender.accept(existing.getServerHelloBuffer(), from);
+            return;
         }
 
         // Generate server ephemeral key pair
@@ -106,19 +111,24 @@ public class HandshakeHandler
         // Create encryptor for subsequent encrypted packets
         PacketEncryptor encryptor = new PacketEncryptor(derivedKeys);
 
-        // Store pending handshake
+        // Encode ServerHello (unencrypted) and cache it for retransmission
+        ServerHello serverHello = new ServerHello(PROTOCOL_VERSION, serverPublicKey, signature);
+        ByteBuffer encoded = PacketCodec.encode(serverHello);
+        byte[] serverHelloPacket = new byte[encoded.remaining()];
+        encoded.get(serverHelloPacket);
+
+        // Store pending handshake with cached ServerHello
         PendingHandshake pending = new PendingHandshake(
                 from,
                 keyExchange,
                 encryptor,
+                serverHelloPacket,
                 System.currentTimeMillis()
         );
         sessionManager.registerPendingHandshake(pending);
 
-        // Send ServerHello (unencrypted)
-        ServerHello serverHello = new ServerHello(PROTOCOL_VERSION, serverPublicKey, signature);
-        ByteBuffer encoded = PacketCodec.encode(serverHello);
-        packetSender.accept(encoded, from);
+        // Send ServerHello
+        packetSender.accept(ByteBuffer.wrap(serverHelloPacket.clone()), from);
 
         LOG.debug("ServerHello sent to {}", from);
     }

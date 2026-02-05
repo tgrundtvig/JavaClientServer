@@ -15,6 +15,9 @@
     <modules>
         <module>clientserver-api</module>
         <module>clientserver-impl</module>
+        <module>demo/demo-protocol</module>
+        <module>demo/demo-server</module>
+        <module>demo/demo-client</module>
     </modules>
 
     <properties>

@@ -12,4 +12,8 @@ module clientserver.impl
     exports org.abstractica.clientserver.impl.client;
     exports org.abstractica.clientserver.impl.session;
     exports org.abstractica.clientserver.impl.transport;
+
+    // Export serialization and crypto for protocol building and key generation
+    exports org.abstractica.clientserver.impl.serialization;
+    exports org.abstractica.clientserver.impl.crypto;
 }
