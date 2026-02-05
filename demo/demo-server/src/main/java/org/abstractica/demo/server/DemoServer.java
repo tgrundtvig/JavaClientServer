@@ -1,12 +1,15 @@
 package org.abstractica.demo.server;
 
 import org.abstractica.clientserver.Delivery;
+import org.abstractica.clientserver.Network;
 import org.abstractica.clientserver.Protocol;
 import org.abstractica.clientserver.Server;
 import org.abstractica.clientserver.Session;
 import org.abstractica.clientserver.impl.crypto.Signer;
 import org.abstractica.clientserver.impl.serialization.DefaultProtocol;
 import org.abstractica.clientserver.impl.session.DefaultServerFactory;
+import org.abstractica.clientserver.impl.transport.LossyNetwork;
+import org.abstractica.clientserver.impl.transport.UdpNetwork;
 import org.abstractica.demo.protocol.ClientMessage;
 import org.abstractica.demo.protocol.GameState;
 import org.abstractica.demo.protocol.Player;
@@ -24,6 +27,7 @@ import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -53,13 +57,14 @@ public class DemoServer
     private final int port;
     private boolean gameStarted = false;
 
-    public DemoServer(int port, Protocol protocol, PrivateKey privateKey)
+    public DemoServer(int port, Protocol protocol, PrivateKey privateKey, Network network)
     {
         this.port = port;
         this.server = new DefaultServerFactory().builder()
                 .port(port)
                 .protocol(protocol)
                 .privateKey(privateKey)
+                .network(network)
                 .build();
 
         registerMessageHandlers();
@@ -359,16 +364,25 @@ public class DemoServer
     public static void main(String[] args)
     {
         int port = DEFAULT_PORT;
-        if (args.length > 0)
+        boolean lossy = false;
+
+        for (int i = 0; i < args.length; i++)
         {
-            try
+            switch (args[i])
             {
-                port = Integer.parseInt(args[0]);
-            }
-            catch (NumberFormatException e)
-            {
-                System.err.println("Invalid port number: " + args[0]);
-                System.exit(1);
+                case "--lossy" -> lossy = true;
+                default ->
+                {
+                    try
+                    {
+                        port = Integer.parseInt(args[i]);
+                    }
+                    catch (NumberFormatException e)
+                    {
+                        System.err.println("Invalid argument: " + args[i]);
+                        System.exit(1);
+                    }
+                }
             }
         }
 
@@ -398,8 +412,16 @@ public class DemoServer
             System.out.println("Generated new server keys");
         }
 
+        // Create network (lossy or normal)
+        Network network = new UdpNetwork();
+        if (lossy)
+        {
+            network = new LossyNetwork(network, 0.3, Duration.ofMillis(1000));
+            System.out.println("*** LOSSY MODE: 30% packet loss, 1000ms delay ***");
+        }
+
         // Create and start server
-        DemoServer demoServer = new DemoServer(port, protocol, privateKey);
+        DemoServer demoServer = new DemoServer(port, protocol, privateKey, network);
         demoServer.start();
 
         System.out.println("Public key: " + PUBLIC_KEY_FILE);

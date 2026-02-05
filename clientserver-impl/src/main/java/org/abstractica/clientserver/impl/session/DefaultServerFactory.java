@@ -145,7 +145,8 @@ public class DefaultServerFactory implements ServerFactory
          * @param network the network to use
          * @return this builder
          */
-        public DefaultBuilder network(Network network)
+        @Override
+        public Builder network(Network network)
         {
             this.network = network;
             return this;

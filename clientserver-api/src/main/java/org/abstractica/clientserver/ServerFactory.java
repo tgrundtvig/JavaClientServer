@@ -117,6 +117,16 @@ public interface ServerFactory
         Builder maxMessageSize(int size);
 
         /**
+         * Sets the network to use for creating endpoints.
+         *
+         * <p>Optional. Defaults to UDP.</p>
+         *
+         * @param network the network to use
+         * @return this builder
+         */
+        Builder network(Network network);
+
+        /**
          * Builds the server.
          *
          * @return the configured server

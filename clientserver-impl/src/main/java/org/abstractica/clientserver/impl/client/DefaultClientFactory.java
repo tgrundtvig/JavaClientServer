@@ -73,7 +73,8 @@ public class DefaultClientFactory implements ClientFactory
          * @param network the network to use
          * @return this builder
          */
-        public DefaultBuilder network(Network network)
+        @Override
+        public Builder network(Network network)
         {
             this.network = network;
             return this;

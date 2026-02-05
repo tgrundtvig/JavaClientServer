@@ -3,9 +3,12 @@ package org.abstractica.demo.client;
 import org.abstractica.clientserver.Client;
 import org.abstractica.clientserver.Delivery;
 import org.abstractica.clientserver.DisconnectReason;
+import org.abstractica.clientserver.Network;
 import org.abstractica.clientserver.Protocol;
 import org.abstractica.clientserver.impl.client.DefaultClientFactory;
 import org.abstractica.clientserver.impl.serialization.DefaultProtocol;
+import org.abstractica.clientserver.impl.transport.LossyNetwork;
+import org.abstractica.clientserver.impl.transport.UdpNetwork;
 import org.abstractica.demo.protocol.ClientMessage;
 import org.abstractica.demo.protocol.GameState;
 import org.abstractica.demo.protocol.Player;
@@ -21,6 +24,7 @@ import java.nio.file.Path;
 import java.security.KeyFactory;
 import java.security.PublicKey;
 import java.security.spec.X509EncodedKeySpec;
+import java.time.Duration;
 import java.util.Base64;
 
 /**
@@ -47,12 +51,13 @@ public class DemoClient
     private String playerId;
     private boolean connected = false;
 
-    public DemoClient(String host, int port, Protocol protocol, PublicKey serverPublicKey)
+    public DemoClient(String host, int port, Protocol protocol, PublicKey serverPublicKey, Network network)
     {
         this.client = new DefaultClientFactory().builder()
                 .serverAddress(host, port)
                 .protocol(protocol)
                 .serverPublicKey(serverPublicKey)
+                .network(network)
                 .build();
 
         registerMessageHandlers();
@@ -300,6 +305,7 @@ public class DemoClient
         String host = DEFAULT_HOST;
         int port = DEFAULT_PORT;
         String keyFile = PUBLIC_KEY_FILE;
+        boolean lossy = false;
 
         // Parse arguments
         for (int i = 0; i < args.length; i++)
@@ -335,6 +341,7 @@ public class DemoClient
                         keyFile = args[++i];
                     }
                 }
+                case "--lossy" -> lossy = true;
                 case "--help" ->
                 {
                     System.out.println("Usage: demo-client [options]");
@@ -342,6 +349,7 @@ public class DemoClient
                     System.out.println("  -h, --host <host>  Server host (default: localhost)");
                     System.out.println("  -p, --port <port>  Server port (default: 7777)");
                     System.out.println("  -k, --key <file>   Server public key file (default: server-public-key.txt)");
+                    System.out.println("  --lossy            Simulate bad network (30% loss, 1000ms delay)");
                     System.exit(0);
                 }
             }
@@ -362,8 +370,16 @@ public class DemoClient
                 .serverMessages(ServerMessage.class)
                 .build();
 
+        // Create network (lossy or normal)
+        Network network = new UdpNetwork();
+        if (lossy)
+        {
+            network = new LossyNetwork(network, 0.3, Duration.ofMillis(1000));
+            System.out.println("*** LOSSY MODE: 30% packet loss, 1000ms delay ***");
+        }
+
         // Create and connect client
-        DemoClient demoClient = new DemoClient(host, port, protocol, serverPublicKey);
+        DemoClient demoClient = new DemoClient(host, port, protocol, serverPublicKey, network);
         demoClient.connect();
 
         // Run command loop
