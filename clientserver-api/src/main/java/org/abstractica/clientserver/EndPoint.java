@@ -1,4 +1,4 @@
-package org.abstractica.clientserver.impl.transport;
+package org.abstractica.clientserver;
 
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
@@ -11,8 +11,6 @@ import java.util.function.BiConsumer;
  * send packets to destinations and receive packets from any source. It handles
  * physical network communication without knowledge of packet structure,
  * encryption, or reliability.</p>
- *
- * @see TestEndPoint for testing with simulated network conditions
  */
 public interface EndPoint extends AutoCloseable
 {

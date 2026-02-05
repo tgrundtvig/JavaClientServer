@@ -3,6 +3,7 @@ package org.abstractica.clientserver;
 import org.abstractica.clientserver.handlers.ErrorHandler;
 import org.abstractica.clientserver.handlers.MessageHandler;
 
+import java.util.Optional;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 
@@ -140,11 +141,11 @@ public interface Client extends AutoCloseable
     void onError(ErrorHandler handler);
 
     /**
-     * Returns the current session, or null if not connected.
+     * Returns the current session if connected.
      *
-     * @return the session, or null
+     * @return the session, or empty if not connected
      */
-    Session getSession();
+    Optional<Session> getSession();
 
     /**
      * Returns client statistics.

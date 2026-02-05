@@ -1,5 +1,7 @@
 package org.abstractica.clientserver.impl.transport;
 
+import org.abstractica.clientserver.EndPoint;
+
 import java.time.Duration;
 
 /**

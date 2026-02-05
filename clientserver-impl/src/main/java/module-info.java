@@ -8,5 +8,8 @@ module clientserver.impl
     requires clientserver.api;
     requires org.slf4j;
 
-    // Implementation packages are not exported
+    // Export factory implementations for external use
+    exports org.abstractica.clientserver.impl.client;
+    exports org.abstractica.clientserver.impl.session;
+    exports org.abstractica.clientserver.impl.transport;
 }

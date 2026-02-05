@@ -3,8 +3,8 @@ package org.abstractica.clientserver.impl.client;
 import org.abstractica.clientserver.Delivery;
 import org.abstractica.clientserver.Session;
 
-import java.util.HexFormat;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * Client-side Session implementation.
@@ -66,9 +66,9 @@ class ClientSession implements Session
     }
 
     @Override
-    public Object getAttachment()
+    public Optional<Object> getAttachment()
     {
-        return attachment;
+        return Optional.ofNullable(attachment);
     }
 
     @Override

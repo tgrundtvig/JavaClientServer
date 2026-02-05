@@ -114,7 +114,7 @@ class EndToEndTest
         // Assert
         assertTrue(clientConnected.await(5, TimeUnit.SECONDS), "Client should connect");
         assertTrue(serverSessionStarted.await(5, TimeUnit.SECONDS), "Server should receive session");
-        assertNotNull(client.getSession());
+        assertTrue(client.getSession().isPresent());
         assertEquals(1, server.getSessions().size());
     }
 
@@ -337,7 +337,7 @@ class EndToEndTest
         });
         server.onMessage(ClientMessage.Echo.class, (session, msg) ->
         {
-            String username = (String) session.getAttachment();
+            String username = (String) session.getAttachment().orElse("Unknown");
             session.send(new ServerMessage.EchoReply(username + " says: " + msg.text()));
         });
         server.start();

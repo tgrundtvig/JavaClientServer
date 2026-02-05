@@ -4,8 +4,8 @@ import org.abstractica.clientserver.Client;
 import org.abstractica.clientserver.ClientFactory;
 import org.abstractica.clientserver.Protocol;
 import org.abstractica.clientserver.impl.serialization.DefaultProtocol;
-import org.abstractica.clientserver.impl.transport.EndPoint;
-import org.abstractica.clientserver.impl.transport.Network;
+import org.abstractica.clientserver.EndPoint;
+import org.abstractica.clientserver.Network;
 import org.abstractica.clientserver.impl.transport.UdpNetwork;
 
 import java.net.InetSocketAddress;

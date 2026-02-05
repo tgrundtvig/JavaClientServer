@@ -1,28 +1,14 @@
-package org.abstractica.clientserver.impl.transport;
+package org.abstractica.clientserver;
 
 import java.net.SocketAddress;
 
 /**
  * A network that can create endpoints.
  *
- * <p>Implementations provide different network backends:</p>
- * <ul>
- *   <li>{@link UdpNetwork} - real UDP sockets for production</li>
- *   <li>{@link SimulatedNetwork} - simulated network for testing</li>
- * </ul>
+ * <p>Implementations provide different network backends for production
+ * and testing scenarios.</p>
  *
- * <p>Usage:</p>
- * <pre>{@code
- * // For production
- * Network network = new UdpNetwork();
- *
- * // For testing
- * Network network = new SimulatedNetwork();
- *
- * // Create endpoints
- * EndPoint serverEndPoint = network.createEndPoint(serverAddress);
- * EndPoint clientEndPoint = network.createEndPoint();
- * }</pre>
+ * <p>Use {@link NetworkFactory} to obtain Network instances.</p>
  */
 public interface Network
 {

@@ -217,9 +217,9 @@ public class DefaultSession implements Session
     }
 
     @Override
-    public Object getAttachment()
+    public Optional<Object> getAttachment()
     {
-        return attachment;
+        return Optional.ofNullable(attachment);
     }
 
     @Override

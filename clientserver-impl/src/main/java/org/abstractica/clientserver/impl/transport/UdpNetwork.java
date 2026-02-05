@@ -1,5 +1,8 @@
 package org.abstractica.clientserver.impl.transport;
 
+import org.abstractica.clientserver.EndPoint;
+import org.abstractica.clientserver.Network;
+
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 

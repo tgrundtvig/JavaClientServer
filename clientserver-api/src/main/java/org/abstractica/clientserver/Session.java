@@ -1,5 +1,7 @@
 package org.abstractica.clientserver;
 
+import java.util.Optional;
+
 /**
  * A logical connection between client and server.
  *
@@ -79,11 +81,11 @@ public interface Session
     String getId();
 
     /**
-     * Returns the application attachment, or null if none set.
+     * Returns the application attachment if set.
      *
-     * @return the attachment, or null
+     * @return the attachment, or empty if none set
      */
-    Object getAttachment();
+    Optional<Object> getAttachment();
 
     /**
      * Sets the application attachment.

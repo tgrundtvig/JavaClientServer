@@ -1,5 +1,7 @@
 package org.abstractica.clientserver.impl.transport;
 
+import org.abstractica.clientserver.EndPoint;
+import org.abstractica.clientserver.Network;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

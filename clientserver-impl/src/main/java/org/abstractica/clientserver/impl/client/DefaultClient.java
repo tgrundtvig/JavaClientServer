@@ -24,7 +24,7 @@ import org.abstractica.clientserver.impl.protocol.Reject;
 import org.abstractica.clientserver.impl.protocol.ServerHello;
 import org.abstractica.clientserver.impl.reliability.ReliabilityLayer;
 import org.abstractica.clientserver.impl.serialization.DefaultProtocol;
-import org.abstractica.clientserver.impl.transport.EndPoint;
+import org.abstractica.clientserver.EndPoint;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -311,9 +311,9 @@ public class DefaultClient implements Client
     }
 
     @Override
-    public Session getSession()
+    public Optional<Session> getSession()
     {
-        return session;
+        return Optional.ofNullable(session);
     }
 
     @Override

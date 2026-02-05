@@ -20,7 +20,7 @@ import org.abstractica.clientserver.impl.protocol.PacketCodec;
 import org.abstractica.clientserver.impl.protocol.PacketType;
 import org.abstractica.clientserver.impl.reliability.ReliabilityLayer;
 import org.abstractica.clientserver.impl.serialization.DefaultProtocol;
-import org.abstractica.clientserver.impl.transport.EndPoint;
+import org.abstractica.clientserver.EndPoint;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
