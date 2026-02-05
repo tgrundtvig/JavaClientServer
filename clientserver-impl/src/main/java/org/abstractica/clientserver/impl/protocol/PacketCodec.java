@@ -484,6 +484,8 @@ public final class PacketCodec
             case HEARTBEAT -> decodeHeartbeat(buffer);
             case HEARTBEAT_ACK -> decodeHeartbeatAck(buffer);
             case DISCONNECT -> decodeDisconnect(buffer);
+            case ENCRYPTED_ENVELOPE -> throw new IllegalArgumentException(
+                    "ENCRYPTED_ENVELOPE is an outer wrapper, not a decodable packet type");
         };
     }
 }

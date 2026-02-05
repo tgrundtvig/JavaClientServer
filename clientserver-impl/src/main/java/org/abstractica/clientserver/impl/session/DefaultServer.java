@@ -327,7 +327,6 @@ public class DefaultServer implements Server, SessionCallback
     }
 
     private static final int CLIENT_HELLO_SIZE = 34;  // 1 type + 1 version + 32 public key
-    private static final int SERVER_HELLO_SIZE = 98;  // 1 type + 1 version + 32 public key + 64 signature
 
     private void processPacket(ByteBuffer data, SocketAddress from)
     {
@@ -336,16 +335,67 @@ public class DefaultServer implements Server, SessionCallback
             return;
         }
 
-        // Strategy: use connection state to determine expected packet format.
-        // - No state (unknown address): expect unencrypted CLIENT_HELLO
-        // - Pending handshake: try decrypt; if fails, check for CLIENT_HELLO retransmit
-        // - Session exists: try decrypt; if fails, check for CLIENT_HELLO (new connection)
+        int typePrefix = data.get(data.position()) & 0xFF;
 
-        // Check if this is from a pending handshake
+        switch (typePrefix)
+        {
+            case 0x01 -> handleClientHelloPacket(data, from);
+            case 0x02 -> LOG.debug("Ignoring unexpected ServerHello from {}", from);
+            case 0x03 -> handleEncryptedPacket(data, from);
+            default -> LOG.debug("Ignoring packet with unknown type prefix 0x{} from {}",
+                    Integer.toHexString(typePrefix), from);
+        }
+    }
+
+    /**
+     * Handles CLIENT_HELLO (0x01) packets.
+     */
+    private void handleClientHelloPacket(ByteBuffer data, SocketAddress from)
+    {
+        if (data.remaining() != CLIENT_HELLO_SIZE)
+        {
+            LOG.debug("Ignoring malformed ClientHello from {} (size {})", from, data.remaining());
+            return;
+        }
+
+        if (!acceptingConnections)
+        {
+            LOG.debug("Ignoring ClientHello while not accepting connections");
+            return;
+        }
+
+        // Check for pending handshake (CLIENT_HELLO retransmission)
         PendingHandshake pending = sessionManager.findPendingHandshake(from);
         if (pending != null)
         {
-            processPendingHandshakePacket(data, from, pending);
+            LOG.debug("Resending ServerHello to {} (ClientHello retransmit)", from);
+            sendPacket(pending.getServerHelloBuffer(), from);
+            return;
+        }
+
+        // Check for existing session (new connection from same address)
+        DefaultSession existingSession = sessionManager.findByAddress(from);
+        if (existingSession != null)
+        {
+            LOG.info("ClientHello from address with existing session {} - starting new handshake (newest wins)",
+                    existingSession.getId());
+        }
+
+        // Start new handshake
+        ClientHello clientHello = PacketCodec.decodeClientHello(data);
+        handshakeHandler.handleClientHello(clientHello, from);
+    }
+
+    /**
+     * Handles ENCRYPTED (0x03) packets.
+     */
+    private void handleEncryptedPacket(ByteBuffer data, SocketAddress from)
+    {
+        // Check for pending handshake (expecting CONNECT)
+        PendingHandshake pending = sessionManager.findPendingHandshake(from);
+        if (pending != null)
+        {
+            handlePendingHandshakeEncrypted(data, from, pending);
             return;
         }
 
@@ -353,87 +403,46 @@ public class DefaultServer implements Server, SessionCallback
         DefaultSession session = sessionManager.findByAddress(from);
         if (session != null)
         {
-            processSessionPacket(data, from, session);
+            handleSessionEncrypted(data, from, session);
             return;
         }
 
-        // Unknown address - expect unencrypted CLIENT_HELLO
-        processUnknownAddressPacket(data, from);
+        // No context for this encrypted packet
+        LOG.debug("Ignoring encrypted packet from unknown address {}", from);
     }
 
     /**
-     * Processes a packet from an unknown address (no pending handshake, no session).
-     * Only CLIENT_HELLO is expected.
+     * Handles encrypted packet during pending handshake (expecting CONNECT).
      */
-    private void processUnknownAddressPacket(ByteBuffer data, SocketAddress from)
+    private void handlePendingHandshakeEncrypted(ByteBuffer data, SocketAddress from, PendingHandshake pending)
     {
-        int firstByte = data.get(data.position()) & 0xFF;
-        int packetSize = data.remaining();
-
-        if (firstByte == PacketType.CLIENT_HELLO.getId() && packetSize == CLIENT_HELLO_SIZE)
-        {
-            if (!acceptingConnections)
-            {
-                LOG.debug("Ignoring ClientHello while not accepting connections");
-                return;
-            }
-            ClientHello clientHello = PacketCodec.decodeClientHello(data);
-            handshakeHandler.handleClientHello(clientHello, from);
-        }
-        else
-        {
-            LOG.debug("Ignoring non-ClientHello packet from unknown address {} (first byte 0x{}, size {})",
-                    from, Integer.toHexString(firstByte), packetSize);
-        }
-    }
-
-    /**
-     * Processes a packet from an address with a pending handshake.
-     * Tries to decrypt first; if fails, checks for CLIENT_HELLO retransmission.
-     */
-    private void processPendingHandshakePacket(ByteBuffer data, SocketAddress from, PendingHandshake pending)
-    {
+        ByteBuffer decrypted;
         try
         {
-            ByteBuffer decrypted = pending.encryptor().decrypt(data);
-            PacketType decryptedType = PacketCodec.peekType(decrypted);
-
-            if (decryptedType == PacketType.CONNECT)
-            {
-                var connect = PacketCodec.decodeConnect(decrypted);
-                handshakeHandler.handleConnect(connect, from, pending.encryptor());
-            }
-            else
-            {
-                LOG.debug("Expected Connect from pending handshake, got: {}", decryptedType);
-            }
+            decrypted = pending.encryptor().decrypt(data);
         }
         catch (SecurityException e)
         {
-            // Decryption failed - check if it's a CLIENT_HELLO retransmission
-            data.rewind();
-            int firstByte = data.get(data.position()) & 0xFF;
-            int packetSize = data.remaining();
+            LOG.debug("Failed to decrypt packet from pending handshake {}: {}", from, e.getMessage());
+            return;
+        }
 
-            if (firstByte == PacketType.CLIENT_HELLO.getId() && packetSize == CLIENT_HELLO_SIZE)
-            {
-                // CLIENT_HELLO retransmission - resend cached SERVER_HELLO
-                LOG.debug("Resending ServerHello to {} (ClientHello retransmit during pending handshake)", from);
-                sendPacket(pending.getServerHelloBuffer(), from);
-            }
-            else
-            {
-                LOG.debug("Failed to decrypt packet from pending handshake {} (first byte 0x{}, size {}): {}",
-                        from, Integer.toHexString(firstByte), packetSize, e.getMessage());
-            }
+        PacketType decryptedType = PacketCodec.peekType(decrypted);
+        if (decryptedType == PacketType.CONNECT)
+        {
+            var connect = PacketCodec.decodeConnect(decrypted);
+            handshakeHandler.handleConnect(connect, from, pending.encryptor());
+        }
+        else
+        {
+            LOG.debug("Expected Connect from pending handshake, got: {}", decryptedType);
         }
     }
 
     /**
-     * Processes a packet from an address with an existing session.
-     * Tries to decrypt first; if fails, checks for CLIENT_HELLO (new connection attempt).
+     * Handles encrypted packet for existing session.
      */
-    private void processSessionPacket(ByteBuffer data, SocketAddress from, DefaultSession session)
+    private void handleSessionEncrypted(ByteBuffer data, SocketAddress from, DefaultSession session)
     {
         ByteBuffer decrypted;
         try
@@ -442,36 +451,14 @@ public class DefaultServer implements Server, SessionCallback
         }
         catch (SecurityException e)
         {
-            // Decryption failed - check if it's a CLIENT_HELLO (client reconnecting/new connection)
-            data.rewind();
-            int firstByte = data.get(data.position()) & 0xFF;
-            int packetSize = data.remaining();
-
-            if (firstByte == PacketType.CLIENT_HELLO.getId() && packetSize == CLIENT_HELLO_SIZE)
-            {
-                // New connection from same address - newest connection wins
-                if (!acceptingConnections)
-                {
-                    LOG.debug("Ignoring ClientHello while not accepting connections");
-                    return;
-                }
-                LOG.info("ClientHello from address with existing session {} - starting new handshake (newest wins)",
-                        session.getId());
-                ClientHello clientHello = PacketCodec.decodeClientHello(data);
-                handshakeHandler.handleClientHello(clientHello, from);
-            }
-            else
-            {
-                LOG.debug("Failed to decrypt packet from session {} (first byte 0x{}, size {}): {}",
-                        session.getId(), Integer.toHexString(firstByte), packetSize, e.getMessage());
-            }
+            LOG.debug("Failed to decrypt packet from session {}: {}", session.getId(), e.getMessage());
             return;
         }
 
         // Update activity timestamp
         session.updateActivity();
 
-        // Route by packet type
+        // Route by inner packet type
         Object packet = PacketCodec.decode(decrypted);
         long nowMs = System.currentTimeMillis();
 

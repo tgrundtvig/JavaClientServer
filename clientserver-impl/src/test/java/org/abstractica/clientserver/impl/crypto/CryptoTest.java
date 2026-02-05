@@ -245,9 +245,9 @@ class CryptoTest
         byte[] plaintext = new byte[100];
         ByteBuffer encrypted = encryptor.encrypt(plaintext);
 
-        // Should be: 12 (nonce) + 100 (data) + 16 (auth tag) = 128
-        assertEquals(128, encrypted.remaining());
-        assertEquals(28, PacketEncryptor.getOverhead());
+        // Should be: 1 (type prefix) + 12 (nonce) + 100 (data) + 16 (auth tag) = 129
+        assertEquals(129, encrypted.remaining());
+        assertEquals(29, PacketEncryptor.getOverhead());
     }
 
     @Test

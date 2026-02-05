@@ -515,9 +515,6 @@ public class DefaultClient implements Client
         LOG.debug("Processing loop stopped");
     }
 
-    private static final int CLIENT_HELLO_SIZE = 34;  // 1 type + 1 version + 32 public key
-    private static final int SERVER_HELLO_SIZE = 98;  // 1 type + 1 version + 32 public key + 64 signature
-
     private void processPacket(ByteBuffer data)
     {
         if (data.remaining() < 1)
@@ -525,36 +522,51 @@ public class DefaultClient implements Client
             return;
         }
 
-        // Strategy: use encryptor availability to determine expected packet format.
-        // - No encryptor (AWAITING_SERVER_HELLO): expect unencrypted SERVER_HELLO
-        // - Has encryptor: try decrypt first; if fails, check for handshake retransmission
+        // Route by packet type prefix:
+        // 0x01 = CLIENT_HELLO (not expected from server)
+        // 0x02 = SERVER_HELLO (handshake)
+        // 0x03 = ENCRYPTED (all post-handshake communication)
+        int typePrefix = data.get(data.position()) & 0xFF;
 
-        if (encryptor == null)
+        switch (typePrefix)
         {
-            // Early handshake state - expect unencrypted SERVER_HELLO
-            if (state != ClientState.AWAITING_SERVER_HELLO)
-            {
-                LOG.debug("Packet received in state {} with no encryptor, ignoring", state);
-                return;
-            }
+            case 0x01 -> LOG.debug("Ignoring unexpected ClientHello from server");
 
-            int firstByte = data.get(data.position()) & 0xFF;
-            int packetSize = data.remaining();
+            case 0x02 -> handleServerHelloPacket(data);
 
-            if (firstByte == PacketType.SERVER_HELLO.getId() && packetSize == SERVER_HELLO_SIZE)
-            {
-                ServerHello serverHello = PacketCodec.decodeServerHello(data);
-                handleServerHello(serverHello);
-            }
-            else
-            {
-                LOG.debug("Expected ServerHello, got packet with first byte 0x{} size {}",
-                        Integer.toHexString(firstByte), packetSize);
-            }
+            case 0x03 -> handleEncryptedPacket(data);
+
+            default -> LOG.debug("Ignoring packet with unknown type prefix: 0x{}",
+                    Integer.toHexString(typePrefix));
+        }
+    }
+
+    /**
+     * Handles a SERVER_HELLO packet (type prefix 0x02).
+     */
+    private void handleServerHelloPacket(ByteBuffer data)
+    {
+        if (state != ClientState.AWAITING_SERVER_HELLO)
+        {
+            LOG.debug("Ignoring ServerHello in state {} (retransmission)", state);
             return;
         }
 
-        // Has encryptor - try decrypt first
+        ServerHello serverHello = PacketCodec.decodeServerHello(data);
+        handleServerHello(serverHello);
+    }
+
+    /**
+     * Handles an encrypted packet (type prefix 0x03).
+     */
+    private void handleEncryptedPacket(ByteBuffer data)
+    {
+        if (encryptor == null)
+        {
+            LOG.debug("Ignoring encrypted packet - no encryptor available");
+            return;
+        }
+
         ByteBuffer decrypted;
         try
         {
@@ -562,9 +574,7 @@ public class DefaultClient implements Client
         }
         catch (SecurityException e)
         {
-            // Decryption failed - check if it's a handshake retransmission
-            data.rewind();  // Reset buffer position for inspection
-            handleDecryptionFailure(data, e);
+            LOG.debug("Failed to decrypt packet: {}", e.getMessage());
             return;
         }
 
@@ -582,34 +592,8 @@ public class DefaultClient implements Client
             case Heartbeat h -> handleHeartbeat(h);
             case HeartbeatAck ha -> handleHeartbeatAck(ha);
             case Disconnect d -> handleDisconnect(d);
-            default -> LOG.debug("Unexpected packet: {}", packet.getClass().getSimpleName());
+            default -> LOG.debug("Unexpected inner packet: {}", packet.getClass().getSimpleName());
         }
-    }
-
-    /**
-     * Handles a packet that failed decryption.
-     *
-     * <p>Checks if the packet is a handshake retransmission (SERVER_HELLO) that we
-     * should ignore, or truly corrupted/malicious data.</p>
-     *
-     * @param data the undecryptable packet data
-     * @param cause the decryption exception
-     */
-    private void handleDecryptionFailure(ByteBuffer data, SecurityException cause)
-    {
-        int firstByte = data.get(data.position()) & 0xFF;
-        int packetSize = data.remaining();
-
-        // Check if it's a SERVER_HELLO retransmission (type 0x02, exactly 98 bytes)
-        if (firstByte == PacketType.SERVER_HELLO.getId() && packetSize == SERVER_HELLO_SIZE)
-        {
-            LOG.debug("Ignoring ServerHello retransmission (decryption failed as expected)");
-            return;
-        }
-
-        // Not a handshake packet - log the decryption failure
-        LOG.debug("Decryption failed for packet (first byte 0x{}, size {}): {}",
-                Integer.toHexString(firstByte), packetSize, cause.getMessage());
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})

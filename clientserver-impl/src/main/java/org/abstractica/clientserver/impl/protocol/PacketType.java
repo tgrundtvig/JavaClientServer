@@ -2,14 +2,25 @@ package org.abstractica.clientserver.impl.protocol;
 
 /**
  * Packet type identifiers as defined in the wire protocol.
+ *
+ * <p>Wire format uses a type prefix byte to distinguish packet categories:</p>
+ * <ul>
+ *   <li>0x01 - CLIENT_HELLO (unencrypted handshake)</li>
+ *   <li>0x02 - SERVER_HELLO (unencrypted handshake)</li>
+ *   <li>0x03 - ENCRYPTED envelope (contains encrypted inner packet)</li>
+ * </ul>
  */
 public enum PacketType
 {
-    // Unencrypted handshake packets (0x01 - 0x0F)
+    // Unencrypted handshake packets (0x01 - 0x02)
     CLIENT_HELLO(0x01, false),
     SERVER_HELLO(0x02, false),
 
-    // Encrypted session packets (0x10 - 0x1F)
+    // Encrypted envelope marker (0x03)
+    // All encrypted packets are wrapped with this prefix
+    ENCRYPTED_ENVELOPE(0x03, false),
+
+    // Inner packet types (inside encrypted envelope, 0x10+)
     CONNECT(0x10, true),
     ACCEPT(0x11, true),
     REJECT(0x12, true),

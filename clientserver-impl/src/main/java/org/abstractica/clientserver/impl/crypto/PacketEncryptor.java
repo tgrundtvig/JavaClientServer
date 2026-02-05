@@ -16,14 +16,18 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * <p>Wire format for encrypted packets:</p>
  * <pre>
- * [nonce: 12 bytes][ciphertext + auth tag: variable + 16 bytes]
+ * [type: 0x03][nonce: 12 bytes][ciphertext + auth tag: variable + 16 bytes]
  * </pre>
+ *
+ * <p>The 0x03 type prefix distinguishes encrypted packets from unencrypted
+ * handshake packets (0x01 CLIENT_HELLO, 0x02 SERVER_HELLO).</p>
  */
 public final class PacketEncryptor
 {
     private static final String ALGORITHM = "ChaCha20-Poly1305";
     private static final int NONCE_LENGTH = 12;
     private static final int AUTH_TAG_LENGTH = 16;
+    private static final byte ENCRYPTED_TYPE_PREFIX = 0x03;
 
     private final SecretKeySpec key;
     private final byte[] nonceBase;
@@ -67,7 +71,7 @@ public final class PacketEncryptor
     /**
      * Encrypts plaintext and returns the full encrypted packet.
      *
-     * <p>The returned buffer contains: [nonce: 12][ciphertext + tag: len + 16]</p>
+     * <p>The returned buffer contains: [0x03][nonce: 12][ciphertext + tag: len + 16]</p>
      *
      * @param plaintext the data to encrypt
      * @return encrypted packet ready for transmission
@@ -87,8 +91,9 @@ public final class PacketEncryptor
 
             byte[] ciphertext = cipher.doFinal(plaintextBytes);
 
-            // Output: nonce + ciphertext (which includes auth tag)
-            ByteBuffer output = ByteBuffer.allocate(NONCE_LENGTH + ciphertext.length);
+            // Output: type prefix + nonce + ciphertext (which includes auth tag)
+            ByteBuffer output = ByteBuffer.allocate(1 + NONCE_LENGTH + ciphertext.length);
+            output.put(ENCRYPTED_TYPE_PREFIX);
             output.put(nonce);
             output.put(ciphertext);
             output.flip();
@@ -115,15 +120,23 @@ public final class PacketEncryptor
     /**
      * Decrypts an encrypted packet.
      *
-     * @param encryptedPacket the encrypted packet [nonce: 12][ciphertext + tag]
+     * @param encryptedPacket the encrypted packet [0x03][nonce: 12][ciphertext + tag]
      * @return decrypted plaintext
-     * @throws SecurityException if decryption or authentication fails
+     * @throws SecurityException if decryption or authentication fails, or if type prefix is wrong
      */
     public ByteBuffer decrypt(ByteBuffer encryptedPacket)
     {
-        if (encryptedPacket.remaining() < NONCE_LENGTH + AUTH_TAG_LENGTH)
+        if (encryptedPacket.remaining() < 1 + NONCE_LENGTH + AUTH_TAG_LENGTH)
         {
             throw new SecurityException("Packet too short");
+        }
+
+        // Verify and strip type prefix
+        byte typePrefix = encryptedPacket.get();
+        if (typePrefix != ENCRYPTED_TYPE_PREFIX)
+        {
+            throw new SecurityException("Invalid packet type prefix: 0x" +
+                    Integer.toHexString(typePrefix & 0xFF) + ", expected 0x03");
         }
 
         byte[] nonce = new byte[NONCE_LENGTH];
@@ -242,12 +255,12 @@ public final class PacketEncryptor
     }
 
     /**
-     * Returns the overhead added by encryption (nonce + auth tag).
+     * Returns the overhead added by encryption (type prefix + nonce + auth tag).
      *
      * @return encryption overhead in bytes
      */
     public static int getOverhead()
     {
-        return NONCE_LENGTH + AUTH_TAG_LENGTH;
+        return 1 + NONCE_LENGTH + AUTH_TAG_LENGTH;
     }
 }
