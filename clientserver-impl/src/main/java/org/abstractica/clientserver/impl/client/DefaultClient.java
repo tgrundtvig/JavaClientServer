@@ -90,6 +90,15 @@ public class DefaultClient implements Client
     private volatile long lastActivityMs;
     private volatile long lastHeartbeatSentMs;
 
+    // Handshake retry
+    private static final Duration HANDSHAKE_RETRY_INTERVAL = Duration.ofMillis(1000);
+    private static final int MAX_HANDSHAKE_RETRIES = 5;
+    private static final Duration TICK_INTERVAL = Duration.ofMillis(100);
+    private volatile int handshakeRetryCount;
+    private volatile long lastHandshakeSentMs;
+    private volatile ByteBuffer lastSentClientHello;
+    private volatile ByteBuffer lastSentConnect;
+
     /**
      * Connection states.
      */
@@ -323,6 +332,12 @@ public class DefaultClient implements Client
         // Send ClientHello
         ClientHello clientHello = new ClientHello(PROTOCOL_VERSION, keyExchange.getPublicKey());
         ByteBuffer encoded = PacketCodec.encode(clientHello);
+
+        // Store for retransmission
+        lastSentClientHello = encoded.duplicate();
+        handshakeRetryCount = 0;
+        lastHandshakeSentMs = System.currentTimeMillis();
+
         transport.send(encoded, serverAddress);
 
         state = ClientState.AWAITING_SERVER_HELLO;
@@ -374,7 +389,14 @@ public class DefaultClient implements Client
             connect = Connect.newConnection(protocol.getHashBytes());
         }
 
-        sendEncrypted(connect);
+        // Store encrypted Connect for retransmission
+        ByteBuffer encoded = PacketCodec.encode(connect);
+        ByteBuffer encrypted = encryptor.encrypt(encoded);
+        lastSentConnect = encrypted.duplicate();
+        handshakeRetryCount = 0;
+        lastHandshakeSentMs = System.currentTimeMillis();
+
+        transport.send(encrypted, serverAddress);
         state = ClientState.AWAITING_ACCEPT;
 
         LOG.debug("Connect sent");
@@ -389,6 +411,10 @@ public class DefaultClient implements Client
         }
 
         LOG.info("Connection accepted: token={}", bytesToHex(accept.sessionToken()));
+
+        // Clear handshake state
+        lastSentClientHello = null;
+        lastSentConnect = null;
 
         boolean isReconnect = sessionToken != null;
         sessionToken = accept.sessionToken();
@@ -623,7 +649,12 @@ public class DefaultClient implements Client
         {
             try
             {
-                Thread.sleep(heartbeatInterval.toMillis());
+                // Use shorter interval during handshake for retry responsiveness
+                long sleepMs = (state == ClientState.CONNECTED)
+                        ? heartbeatInterval.toMillis()
+                        : TICK_INTERVAL.toMillis();
+
+                Thread.sleep(sleepMs);
 
                 if (!running)
                 {
@@ -646,15 +677,14 @@ public class DefaultClient implements Client
     {
         if (state != ClientState.CONNECTED)
         {
-            // Check handshake timeout
-            if (state == ClientState.AWAITING_SERVER_HELLO || state == ClientState.AWAITING_ACCEPT)
+            // Handle handshake retry
+            if (state == ClientState.AWAITING_SERVER_HELLO)
             {
-                if (nowMs - lastActivityMs > Duration.ofSeconds(30).toMillis())
-                {
-                    LOG.warn("Handshake timeout");
-                    notifyConnectionFailed(new DisconnectReason.Timeout());
-                    shutdown(null);
-                }
+                handleHandshakeRetry(nowMs, lastSentClientHello, "ClientHello");
+            }
+            else if (state == ClientState.AWAITING_ACCEPT)
+            {
+                handleHandshakeRetry(nowMs, lastSentConnect, "Connect");
             }
             return;
         }
@@ -687,6 +717,39 @@ public class DefaultClient implements Client
     }
 
     // ========== Helpers ==========
+
+    private void handleHandshakeRetry(long nowMs, ByteBuffer storedPacket, String packetName)
+    {
+        if (storedPacket == null)
+        {
+            return;
+        }
+
+        // Check if retry interval has elapsed
+        if (nowMs - lastHandshakeSentMs < HANDSHAKE_RETRY_INTERVAL.toMillis())
+        {
+            return;
+        }
+
+        // Check max retries
+        if (handshakeRetryCount >= MAX_HANDSHAKE_RETRIES)
+        {
+            LOG.warn("Handshake failed after {} retries", handshakeRetryCount);
+            notifyConnectionFailed(new DisconnectReason.Timeout());
+            shutdown(null);
+            return;
+        }
+
+        // Retransmit
+        handshakeRetryCount++;
+        lastHandshakeSentMs = nowMs;
+
+        ByteBuffer toSend = storedPacket.duplicate();
+        toSend.rewind();
+        transport.send(toSend, serverAddress);
+
+        LOG.debug("{} retransmit #{}", packetName, handshakeRetryCount);
+    }
 
     private void sendEncrypted(Object packet)
     {
@@ -743,6 +806,8 @@ public class DefaultClient implements Client
         session = null;
         encryptor = null;
         reliabilityLayer = null;
+        lastSentClientHello = null;
+        lastSentConnect = null;
     }
 
     private void notifyConnectionFailed(DisconnectReason reason)

@@ -8,8 +8,10 @@ import org.abstractica.clientserver.Session;
 import org.abstractica.clientserver.handlers.ErrorHandler;
 import org.abstractica.clientserver.handlers.MessageHandler;
 import org.abstractica.clientserver.impl.crypto.PacketEncryptor;
+import org.abstractica.clientserver.impl.protocol.Accept;
 import org.abstractica.clientserver.impl.protocol.Ack;
 import org.abstractica.clientserver.impl.protocol.ClientHello;
+import org.abstractica.clientserver.impl.protocol.Connect;
 import org.abstractica.clientserver.impl.protocol.Data;
 import org.abstractica.clientserver.impl.protocol.Disconnect;
 import org.abstractica.clientserver.impl.protocol.Heartbeat;
@@ -50,6 +52,7 @@ public class DefaultServer implements Server, SessionCallback
     private final HandshakeHandler handshakeHandler;
     private final DefaultProtocol protocol;
     private final Duration heartbeatInterval;
+    private final Duration sessionTimeout;
 
     private final Map<Class<?>, MessageHandler<?>> messageHandlers;
     private final List<Consumer<Session>> sessionStartedCallbacks;
@@ -81,6 +84,7 @@ public class DefaultServer implements Server, SessionCallback
         this.transport = Objects.requireNonNull(transport, "transport");
         this.protocol = Objects.requireNonNull(protocol, "protocol");
         this.heartbeatInterval = Objects.requireNonNull(heartbeatInterval, "heartbeatInterval");
+        this.sessionTimeout = Objects.requireNonNull(sessionTimeout, "sessionTimeout");
 
         this.sessionManager = new SessionManager(sessionTimeout, maxConnections);
         this.stats = new DefaultServerStats(sessionManager);
@@ -407,6 +411,12 @@ public class DefaultServer implements Server, SessionCallback
 
         switch (packet)
         {
+            case Connect c ->
+            {
+                // Client is retransmitting Connect (Accept was lost) - resend Accept
+                LOG.debug("Resending Accept to {} (Connect retransmit)", from);
+                resendAccept(session, from);
+            }
             case Data d ->
             {
                 ReliabilityLayer.ReceiveResult result = session.getReliabilityLayer().receive(d, nowMs);
@@ -422,6 +432,20 @@ public class DefaultServer implements Server, SessionCallback
             case Disconnect d -> session.enqueueControl(new QueuedMessage.ControlDisconnect(d));
             default -> LOG.debug("Unexpected packet type in session context: {}", packet.getClass().getSimpleName());
         }
+    }
+
+    private void resendAccept(DefaultSession session, SocketAddress to)
+    {
+        Accept accept = new Accept(
+                session.getSessionToken(),
+                (int) heartbeatInterval.toMillis(),
+                (int) sessionTimeout.toMillis(),
+                0 // lastReceivedSeq
+        );
+
+        ByteBuffer encoded = PacketCodec.encode(accept);
+        ByteBuffer encrypted = session.getEncryptor().encrypt(encoded);
+        transport.send(encrypted, to);
     }
 
     // ========== Tick Loop ==========

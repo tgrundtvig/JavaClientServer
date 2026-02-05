@@ -194,11 +194,6 @@ class SimulatedNetworkTest
     @Test
     void handshakeSucceedsWithZeroPacketLoss() throws Exception
     {
-        // This test verifies the simulated transport works for handshake
-        // Note: handshake retry is not yet implemented, so we can't test
-        // with packet loss during handshake. Post-connection reliability
-        // handles packet loss via retransmission.
-
         CountDownLatch clientConnected = new CountDownLatch(1);
 
         server = createServer();
@@ -210,6 +205,99 @@ class SimulatedNetworkTest
 
         assertTrue(clientConnected.await(2, TimeUnit.SECONDS),
                 "Client should connect with simulated transport");
+    }
+
+    @Test
+    void handshakeRetryOnClientHelloLoss() throws Exception
+    {
+        // Drop the first ClientHello - client should retry
+        clientTransport.dropNextPacket();
+
+        CountDownLatch clientConnected = new CountDownLatch(1);
+
+        server = createServer();
+        server.start();
+
+        client = createClient();
+        client.onConnected(session -> clientConnected.countDown());
+        client.connect();
+
+        // Should connect after retry (retry interval is 1 second)
+        assertTrue(clientConnected.await(5, TimeUnit.SECONDS),
+                "Client should connect after ClientHello retry");
+    }
+
+    @Test
+    void handshakeRetryOnServerHelloLoss() throws Exception
+    {
+        // Drop the first ServerHello - client should retry ClientHello
+        // which causes server to regenerate keys and resend ServerHello
+        serverTransport.dropNextPacket();
+
+        CountDownLatch clientConnected = new CountDownLatch(1);
+
+        server = createServer();
+        server.start();
+
+        client = createClient();
+        client.onConnected(session -> clientConnected.countDown());
+        client.connect();
+
+        // Should connect after retry
+        assertTrue(clientConnected.await(5, TimeUnit.SECONDS),
+                "Client should connect after ServerHello loss (via ClientHello retry)");
+    }
+
+    @Test
+    void handshakeRetryOnConnectLoss() throws Exception
+    {
+        CountDownLatch clientConnected = new CountDownLatch(1);
+
+        server = createServer();
+        server.start();
+
+        client = createClient();
+        client.onConnected(session -> clientConnected.countDown());
+
+        // Start connection, then drop the Connect packet after ServerHello is received
+        // We need to delay the drop until after ClientHello and ServerHello exchange
+        client.connect();
+
+        // Wait a bit for ClientHello/ServerHello exchange, then drop the Connect
+        Thread.sleep(100);
+        clientTransport.dropNextPacket();
+
+        // Should connect after retry
+        assertTrue(clientConnected.await(5, TimeUnit.SECONDS),
+                "Client should connect after Connect retry");
+    }
+
+    @Test
+    void handshakeRetryOnAcceptLoss() throws Exception
+    {
+        CountDownLatch clientConnected = new CountDownLatch(1);
+        CountDownLatch serverSessionStarted = new CountDownLatch(1);
+
+        server = createServer();
+        server.onSessionStarted(session -> serverSessionStarted.countDown());
+        server.start();
+
+        client = createClient();
+        client.onConnected(session -> clientConnected.countDown());
+
+        // Start connection, drop the Accept after Connect is received
+        client.connect();
+
+        // Wait for server session to be created (means Connect was processed)
+        assertTrue(serverSessionStarted.await(2, TimeUnit.SECONDS),
+                "Server should create session");
+
+        // Now drop the Accept (it may already be in flight, so drop next outgoing)
+        serverTransport.dropNextPacket();
+
+        // Client should retry Connect, server should resend Accept
+        assertTrue(clientConnected.await(5, TimeUnit.SECONDS),
+                "Client should connect after Accept loss (via Connect retry)");
     }
 
     @Test
