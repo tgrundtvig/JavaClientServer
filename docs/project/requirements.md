@@ -291,8 +291,8 @@ session.setAttachment(playerState);  // attach application data
 server.broadcast(message);
 server.broadcast(message, Delivery.UNRELIABLE);
 
-// Get all active sessions
-Collection<Session> sessions = server.getSessions();
+// Get all connected sessions
+Collection<Session> sessions = server.getConnectedSessions();
 
 // Stop accepting new connections (for graceful shutdown)
 server.stopAcceptingConnections();

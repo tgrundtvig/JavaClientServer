@@ -240,9 +240,17 @@ public class DefaultServer implements Server, SessionCallback
     }
 
     @Override
-    public Collection<Session> getSessions()
+    public Collection<Session> getConnectedSessions()
     {
-        return Collections.unmodifiableCollection(sessionManager.getAllSessions());
+        List<Session> connected = new ArrayList<>();
+        for (DefaultSession session : sessionManager.getAllSessions())
+        {
+            if (session.getState() == SessionState.CONNECTED)
+            {
+                connected.add(session);
+            }
+        }
+        return Collections.unmodifiableList(connected);
     }
 
     @Override
@@ -273,6 +281,13 @@ public class DefaultServer implements Server, SessionCallback
             {
                 LOG.error("Session disconnected callback error", e);
             }
+        }
+
+        // Server-initiated disconnects: remove immediately (no reconnection expected)
+        if (reason instanceof DisconnectReason.KickedByServer
+                || reason instanceof DisconnectReason.ServerShutdown)
+        {
+            sessionManager.removeSession(session);
         }
     }
 

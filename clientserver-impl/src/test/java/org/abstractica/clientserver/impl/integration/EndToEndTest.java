@@ -115,7 +115,7 @@ class EndToEndTest
         assertTrue(clientConnected.await(5, TimeUnit.SECONDS), "Client should connect");
         assertTrue(serverSessionStarted.await(5, TimeUnit.SECONDS), "Server should receive session");
         assertTrue(client.getSession().isPresent());
-        assertEquals(1, server.getSessions().size());
+        assertEquals(1, server.getConnectedSessions().size());
     }
 
     @Test
@@ -282,7 +282,7 @@ class EndToEndTest
 
         // Wait for both sessions to be established
         Thread.sleep(200);
-        assertEquals(2, server.getSessions().size());
+        assertEquals(2, server.getConnectedSessions().size());
 
         // Act
         server.broadcast(new ServerMessage.Broadcast("Hello everyone!"));

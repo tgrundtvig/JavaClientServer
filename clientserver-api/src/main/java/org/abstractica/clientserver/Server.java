@@ -125,11 +125,11 @@ public interface Server extends AutoCloseable
     void broadcast(Object message, Delivery delivery);
 
     /**
-     * Returns all active sessions.
+     * Returns all connected sessions.
      *
-     * @return unmodifiable collection of sessions
+     * @return unmodifiable collection of connected sessions
      */
-    Collection<Session> getSessions();
+    Collection<Session> getConnectedSessions();
 
     /**
      * Returns server statistics.

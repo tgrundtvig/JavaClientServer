@@ -160,7 +160,7 @@ public class SessionManager
 
         ByteArrayKey key = new ByteArrayKey(session.getSessionToken());
         sessionsByToken.remove(key);
-        sessionsByAddress.remove(session.getRemoteAddress());
+        sessionsByAddress.remove(session.getRemoteAddress(), session);
 
         session.stop();
 

@@ -99,6 +99,18 @@ public class DefaultClient implements Client
     private volatile ByteBuffer lastSentClientHello;
     private volatile ByteBuffer lastSentConnect;
 
+    // Disconnect detection
+    private static final int MAX_MISSED_HEARTBEATS = 3;
+    private volatile long lastHeartbeatAckMs;
+
+    // Auto-reconnect
+    private static final int MAX_RECONNECT_ATTEMPTS = 10;
+    private static final Duration INITIAL_RECONNECT_DELAY = Duration.ofSeconds(1);
+    private static final Duration MAX_RECONNECT_DELAY = Duration.ofSeconds(30);
+    private volatile boolean autoReconnect = true;
+    private volatile int reconnectAttempts;
+    private volatile boolean reconnecting;
+
     /**
      * Connection states.
      */
@@ -184,12 +196,16 @@ public class DefaultClient implements Client
     @Override
     public void disconnect()
     {
-        if (state == ClientState.DISCONNECTED)
+        if (state == ClientState.DISCONNECTED && !reconnecting)
         {
             return;
         }
 
         LOG.info("Disconnecting");
+
+        // Stop any pending reconnect
+        autoReconnect = false;
+        reconnecting = false;
 
         // Send disconnect packet if connected
         if (state == ClientState.CONNECTED && encryptor != null)
@@ -200,7 +216,7 @@ public class DefaultClient implements Client
             endPoint.send(encrypted, serverAddress);
         }
 
-        shutdown(null);
+        shutdown(null, false); // Don't auto-reconnect on user disconnect
     }
 
     @Override
@@ -426,6 +442,8 @@ public class DefaultClient implements Client
 
         state = ClientState.CONNECTED;
         lastActivityMs = System.currentTimeMillis();
+        lastHeartbeatAckMs = System.currentTimeMillis();
+        reconnectAttempts = 0; // Reset on successful connection
 
         // Notify callbacks
         if (isReconnect)
@@ -448,17 +466,25 @@ public class DefaultClient implements Client
     {
         LOG.warn("Connection rejected: {} - {}", reject.reasonCode(), reject.message());
 
+        // Clear session token if server doesn't recognize it - next attempt will be fresh
+        if (reject.reasonCode() == Reject.RejectReason.INVALID_TOKEN ||
+            reject.reasonCode() == Reject.RejectReason.SESSION_EXPIRED)
+        {
+            LOG.info("Clearing session token for fresh connection");
+            sessionToken = null;
+        }
+
         DisconnectReason reason = switch (reject.reasonCode())
         {
             case PROTOCOL_MISMATCH -> new DisconnectReason.ProtocolError(reject.message());
             case SERVER_FULL -> new DisconnectReason.KickedByServer("Server full: " + reject.message());
             case SESSION_EXPIRED -> new DisconnectReason.Timeout();
-            case INVALID_TOKEN -> new DisconnectReason.ProtocolError("Invalid token: " + reject.message());
+            case INVALID_TOKEN -> new DisconnectReason.Timeout(); // Treat as timeout to trigger reconnect
             case AUTHENTICATION_FAILED -> new DisconnectReason.ProtocolError("Auth failed: " + reject.message());
         };
 
         notifyConnectionFailed(reason);
-        shutdown(null);
+        shutdown(reason); // Pass reason to potentially trigger auto-reconnect
     }
 
     // ========== Packet Handling ==========
@@ -647,6 +673,7 @@ public class DefaultClient implements Client
 
     private void handleHeartbeatAck(HeartbeatAck ack)
     {
+        lastHeartbeatAckMs = System.currentTimeMillis();
         long rtt = ack.calculateRtt();
         reliabilityLayer.updateRtt(rtt);
         stats.updateRtt(Duration.ofMillis(rtt));
@@ -717,10 +744,19 @@ public class DefaultClient implements Client
             return;
         }
 
-        // Check for connection timeout
+        // Check for missed heartbeats (fast disconnect detection)
+        long disconnectThreshold = heartbeatInterval.toMillis() * MAX_MISSED_HEARTBEATS;
+        if (nowMs - lastHeartbeatAckMs > disconnectThreshold)
+        {
+            LOG.warn("Server not responding ({} missed heartbeats)", MAX_MISSED_HEARTBEATS);
+            shutdown(new DisconnectReason.Timeout());
+            return;
+        }
+
+        // Check for session timeout (longer threshold for session expiry)
         if (nowMs - lastActivityMs > sessionTimeout.toMillis())
         {
-            LOG.warn("Connection timeout");
+            LOG.warn("Session timeout");
             shutdown(new DisconnectReason.Timeout());
             return;
         }
@@ -764,7 +800,7 @@ public class DefaultClient implements Client
         {
             LOG.warn("Handshake failed after {} retries", handshakeRetryCount);
             notifyConnectionFailed(new DisconnectReason.Timeout());
-            shutdown(null);
+            shutdown(new DisconnectReason.Timeout()); // Pass timeout to trigger auto-reconnect
             return;
         }
 
@@ -800,7 +836,12 @@ public class DefaultClient implements Client
 
     private void shutdown(DisconnectReason reason)
     {
-        if (state == ClientState.DISCONNECTED)
+        shutdown(reason, true);
+    }
+
+    private void shutdown(DisconnectReason reason, boolean allowReconnect)
+    {
+        if (state == ClientState.DISCONNECTED && !reconnecting)
         {
             return;
         }
@@ -836,6 +877,97 @@ public class DefaultClient implements Client
         reliabilityLayer = null;
         lastSentClientHello = null;
         lastSentConnect = null;
+
+        // Auto-reconnect on timeout (server became unreachable)
+        if (allowReconnect && autoReconnect && reason instanceof DisconnectReason.Timeout)
+        {
+            scheduleReconnect();
+        }
+    }
+
+    private void scheduleReconnect()
+    {
+        if (reconnecting)
+        {
+            return;
+        }
+
+        if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS)
+        {
+            LOG.warn("Max reconnect attempts ({}) reached, giving up", MAX_RECONNECT_ATTEMPTS);
+            reconnectAttempts = 0;
+            notifyConnectionFailed(new DisconnectReason.Timeout());
+            return;
+        }
+
+        reconnecting = true;
+        reconnectAttempts++;
+
+        // Exponential backoff
+        long delayMs = Math.min(
+                INITIAL_RECONNECT_DELAY.toMillis() * (1L << (reconnectAttempts - 1)),
+                MAX_RECONNECT_DELAY.toMillis()
+        );
+
+        LOG.info("Reconnecting in {}ms (attempt {}/{})", delayMs, reconnectAttempts, MAX_RECONNECT_ATTEMPTS);
+
+        Thread.ofVirtual()
+                .name("client-reconnect")
+                .start(() ->
+                {
+                    try
+                    {
+                        Thread.sleep(delayMs);
+                        attemptReconnect();
+                    }
+                    catch (InterruptedException e)
+                    {
+                        Thread.currentThread().interrupt();
+                        reconnecting = false;
+                    }
+                });
+    }
+
+    private void attemptReconnect()
+    {
+        reconnecting = false;
+
+        if (state != ClientState.DISCONNECTED)
+        {
+            return;
+        }
+
+        LOG.info("Attempting reconnect to {}", serverAddress);
+
+        try
+        {
+            state = ClientState.CONNECTING;
+            running = true;
+
+            // Restart transport
+            endPoint.setReceiveHandler(this::onReceive);
+            endPoint.start();
+
+            // Start processing thread
+            processingThread = Thread.ofVirtual()
+                    .name("client-processor")
+                    .start(this::processingLoop);
+
+            // Start tick thread
+            tickThread = Thread.ofVirtual()
+                    .name("client-tick")
+                    .start(this::tickLoop);
+
+            // Initiate handshake (will use sessionToken if available)
+            initiateHandshake();
+        }
+        catch (Exception e)
+        {
+            LOG.warn("Reconnect attempt failed: {}", e.getMessage());
+            state = ClientState.DISCONNECTED;
+            running = false;
+            scheduleReconnect();
+        }
     }
 
     private void notifyConnectionFailed(DisconnectReason reason)

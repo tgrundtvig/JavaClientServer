@@ -135,6 +135,10 @@ public class DefaultSession implements Session
     @Override
     public void send(Object message, Delivery delivery)
     {
+        if (state != SessionState.CONNECTED)
+        {
+            throw new IllegalStateException("Session is disconnected");
+        }
         if (!trySend(message, delivery))
         {
             throw new IllegalStateException("Reliable message queue is full");

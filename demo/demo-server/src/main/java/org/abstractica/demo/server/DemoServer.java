@@ -19,8 +19,11 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.KeyFactory;
 import java.security.PrivateKey;
 import java.security.PublicKey;
+import java.security.spec.PKCS8EncodedKeySpec;
+import java.security.spec.X509EncodedKeySpec;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
@@ -44,6 +47,7 @@ public class DemoServer
     private static final Logger LOG = LoggerFactory.getLogger(DemoServer.class);
     private static final int DEFAULT_PORT = 7777;
     private static final String PUBLIC_KEY_FILE = "server-public-key.txt";
+    private static final String PRIVATE_KEY_FILE = "server-private-key.txt";
 
     private final Server server;
     private final int port;
@@ -149,7 +153,7 @@ public class DemoServer
 
         // Broadcast new player to everyone else
         Player newPlayer = new Player(state.getPlayerId(), state.getName(), state.getX(), state.getY());
-        for (Session other : server.getSessions())
+        for (Session other : server.getConnectedSessions())
         {
             if (!other.getId().equals(session.getId()))
             {
@@ -220,7 +224,7 @@ public class DemoServer
         }
 
         boolean allReady = true;
-        for (Session session : server.getSessions())
+        for (Session session : server.getConnectedSessions())
         {
             PlayerState state = getPlayerState(session);
             if (state != null && state.hasJoined() && !state.isReady())
@@ -242,7 +246,7 @@ public class DemoServer
     private List<Player> getCurrentPlayers()
     {
         List<Player> players = new ArrayList<>();
-        for (Session session : server.getSessions())
+        for (Session session : server.getConnectedSessions())
         {
             PlayerState state = getPlayerState(session);
             if (state != null && state.hasJoined())
@@ -339,7 +343,7 @@ public class DemoServer
 
     private void kickPlayer(String name)
     {
-        for (Session session : server.getSessions())
+        for (Session session : server.getConnectedSessions())
         {
             PlayerState state = getPlayerState(session);
             if (state != null && state.hasJoined() && state.getName().equalsIgnoreCase(name))
@@ -374,19 +378,31 @@ public class DemoServer
                 .serverMessages(ServerMessage.class)
                 .build();
 
-        // Generate server keys
-        Signer.SigningKeyPair keyPair = Signer.generateKeyPair();
-        PrivateKey privateKey = keyPair.privateKey();
-        PublicKey publicKey = keyPair.publicKey();
+        // Load or generate server keys
+        PrivateKey privateKey;
+        PublicKey publicKey;
 
-        // Save public key for clients
-        savePublicKey(publicKey);
+        Signer.SigningKeyPair loadedKeyPair = loadKeyPair();
+        if (loadedKeyPair != null)
+        {
+            privateKey = loadedKeyPair.privateKey();
+            publicKey = loadedKeyPair.publicKey();
+            System.out.println("Loaded existing server keys from " + PRIVATE_KEY_FILE);
+        }
+        else
+        {
+            Signer.SigningKeyPair newKeyPair = Signer.generateKeyPair();
+            privateKey = newKeyPair.privateKey();
+            publicKey = newKeyPair.publicKey();
+            saveKeyPair(privateKey, publicKey);
+            System.out.println("Generated new server keys");
+        }
 
         // Create and start server
         DemoServer demoServer = new DemoServer(port, protocol, privateKey);
         demoServer.start();
 
-        System.out.println("Public key saved to: " + PUBLIC_KEY_FILE);
+        System.out.println("Public key: " + PUBLIC_KEY_FILE);
         System.out.println("Share this file with clients to connect.");
         System.out.println();
 
@@ -397,16 +413,50 @@ public class DemoServer
         demoServer.stop();
     }
 
-    private static void savePublicKey(PublicKey publicKey)
+    private static void saveKeyPair(PrivateKey privateKey, PublicKey publicKey)
     {
         try
         {
-            String encoded = Base64.getEncoder().encodeToString(publicKey.getEncoded());
-            Files.writeString(Path.of(PUBLIC_KEY_FILE), encoded);
+            String encodedPrivate = Base64.getEncoder().encodeToString(privateKey.getEncoded());
+            Files.writeString(Path.of(PRIVATE_KEY_FILE), encodedPrivate);
+
+            String encodedPublic = Base64.getEncoder().encodeToString(publicKey.getEncoded());
+            Files.writeString(Path.of(PUBLIC_KEY_FILE), encodedPublic);
         }
         catch (IOException e)
         {
-            LOG.error("Failed to save public key", e);
+            LOG.error("Failed to save keys", e);
+        }
+    }
+
+    private static Signer.SigningKeyPair loadKeyPair()
+    {
+        try
+        {
+            Path privatePath = Path.of(PRIVATE_KEY_FILE);
+            Path publicPath = Path.of(PUBLIC_KEY_FILE);
+
+            if (!Files.exists(privatePath) || !Files.exists(publicPath))
+            {
+                return null;
+            }
+
+            String encodedPrivate = Files.readString(privatePath).trim();
+            String encodedPublic = Files.readString(publicPath).trim();
+
+            byte[] privateBytes = Base64.getDecoder().decode(encodedPrivate);
+            byte[] publicBytes = Base64.getDecoder().decode(encodedPublic);
+
+            KeyFactory keyFactory = KeyFactory.getInstance("Ed25519");
+            PrivateKey privateKey = keyFactory.generatePrivate(new PKCS8EncodedKeySpec(privateBytes));
+            PublicKey publicKey = keyFactory.generatePublic(new X509EncodedKeySpec(publicBytes));
+
+            return new Signer.SigningKeyPair(publicKey, privateKey);
+        }
+        catch (Exception e)
+        {
+            LOG.warn("Failed to load keys, will generate new ones: {}", e.getMessage());
+            return null;
         }
     }
 }
