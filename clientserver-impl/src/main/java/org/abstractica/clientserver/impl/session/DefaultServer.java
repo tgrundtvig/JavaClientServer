@@ -18,7 +18,7 @@ import org.abstractica.clientserver.impl.protocol.PacketCodec;
 import org.abstractica.clientserver.impl.protocol.PacketType;
 import org.abstractica.clientserver.impl.reliability.ReliabilityLayer;
 import org.abstractica.clientserver.impl.serialization.DefaultProtocol;
-import org.abstractica.clientserver.impl.transport.UdpTransport;
+import org.abstractica.clientserver.impl.transport.Transport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,7 +45,7 @@ public class DefaultServer implements Server, SessionCallback
 {
     private static final Logger LOG = LoggerFactory.getLogger(DefaultServer.class);
 
-    private final UdpTransport transport;
+    private final Transport transport;
     private final SessionManager sessionManager;
     private final HandshakeHandler handshakeHandler;
     private final DefaultProtocol protocol;
@@ -70,7 +70,7 @@ public class DefaultServer implements Server, SessionCallback
      * <p>Use {@link DefaultServerFactory} to create instances.</p>
      */
     DefaultServer(
-            UdpTransport transport,
+            Transport transport,
             DefaultProtocol protocol,
             PrivateKey serverPrivateKey,
             Duration heartbeatInterval,

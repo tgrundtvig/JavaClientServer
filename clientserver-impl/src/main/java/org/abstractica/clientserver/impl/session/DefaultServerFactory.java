@@ -4,6 +4,7 @@ import org.abstractica.clientserver.Protocol;
 import org.abstractica.clientserver.Server;
 import org.abstractica.clientserver.ServerFactory;
 import org.abstractica.clientserver.impl.serialization.DefaultProtocol;
+import org.abstractica.clientserver.impl.transport.Transport;
 import org.abstractica.clientserver.impl.transport.UdpTransport;
 
 import java.net.InetAddress;
@@ -25,7 +26,7 @@ public class DefaultServerFactory implements ServerFactory
         return new DefaultBuilder();
     }
 
-    private static class DefaultBuilder implements Builder
+    public static class DefaultBuilder implements Builder
     {
         private int port;
         private DefaultProtocol protocol;
@@ -36,6 +37,7 @@ public class DefaultServerFactory implements ServerFactory
         private Duration heartbeatInterval = Duration.ofSeconds(5);
         private int maxReliableQueueSize = 256;
         private int maxMessageSize = 65536;
+        private Transport customTransport; // Optional custom transport for testing
 
         @Override
         public Builder port(int port)
@@ -132,6 +134,20 @@ public class DefaultServerFactory implements ServerFactory
             return this;
         }
 
+        /**
+         * Sets a custom transport for testing purposes.
+         *
+         * <p>If not set, a UdpTransport will be created automatically.</p>
+         *
+         * @param transport the transport to use
+         * @return this builder
+         */
+        public DefaultBuilder transport(Transport transport)
+        {
+            this.customTransport = transport;
+            return this;
+        }
+
         @Override
         public Server build()
         {
@@ -160,8 +176,16 @@ public class DefaultServerFactory implements ServerFactory
                 socketAddress = new InetSocketAddress(port);
             }
 
-            // Create transport
-            UdpTransport transport = new UdpTransport(socketAddress);
+            // Create transport (use custom if provided, otherwise create UDP)
+            Transport transport;
+            if (customTransport != null)
+            {
+                transport = customTransport;
+            }
+            else
+            {
+                transport = new UdpTransport(socketAddress);
+            }
 
             // Create server
             return new DefaultServer(

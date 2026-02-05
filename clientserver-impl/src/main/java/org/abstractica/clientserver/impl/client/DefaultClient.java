@@ -24,7 +24,7 @@ import org.abstractica.clientserver.impl.protocol.Reject;
 import org.abstractica.clientserver.impl.protocol.ServerHello;
 import org.abstractica.clientserver.impl.reliability.ReliabilityLayer;
 import org.abstractica.clientserver.impl.serialization.DefaultProtocol;
-import org.abstractica.clientserver.impl.transport.UdpTransport;
+import org.abstractica.clientserver.impl.transport.Transport;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -60,7 +60,7 @@ public class DefaultClient implements Client
     private final InetSocketAddress serverAddress;
     private final DefaultProtocol protocol;
     private final PublicKey serverPublicKey;
-    private final UdpTransport transport;
+    private final Transport transport;
     private final DefaultClientStats stats;
 
     private final Map<Class<?>, MessageHandler<?>> messageHandlers;
@@ -117,14 +117,15 @@ public class DefaultClient implements Client
     DefaultClient(
             InetSocketAddress serverAddress,
             DefaultProtocol protocol,
-            PublicKey serverPublicKey
+            PublicKey serverPublicKey,
+            Transport transport
     )
     {
         this.serverAddress = Objects.requireNonNull(serverAddress, "serverAddress");
         this.protocol = Objects.requireNonNull(protocol, "protocol");
         this.serverPublicKey = Objects.requireNonNull(serverPublicKey, "serverPublicKey");
+        this.transport = Objects.requireNonNull(transport, "transport");
 
-        this.transport = UdpTransport.client();
         this.stats = new DefaultClientStats();
 
         this.messageHandlers = new ConcurrentHashMap<>();
